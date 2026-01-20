@@ -37,27 +37,50 @@ esac
 
 echo -e "${YELLOW}→ Detectado: ${OS}/${ARCH}${NC}"
 
-# Buscar última versão
+# Buscar última versão (usando gh CLI para repos privados)
 echo -e "${YELLOW}→ Buscando última versão...${NC}"
-LATEST_VERSION=$(curl -s https://api.github.com/repos/algarys/algarys_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# Verificar se gh está disponível e autenticado
+if command -v gh &> /dev/null; then
+    LATEST_VERSION=$(gh release view --repo algarys/algarys_cli --json tagName -q '.tagName' 2>/dev/null)
+fi
+
+# Fallback para API pública (repos públicos)
+if [ -z "$LATEST_VERSION" ]; then
+    LATEST_VERSION=$(curl -s https://api.github.com/repos/algarys/algarys_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+fi
 
 if [ -z "$LATEST_VERSION" ]; then
-    echo -e "${RED}Erro ao buscar versão. Usando v0.1.0${NC}"
-    LATEST_VERSION="v0.1.0"
+    echo -e "${RED}Erro ao buscar versão.${NC}"
+    echo -e "${YELLOW}Para repos privados, instale e autentique o gh CLI:${NC}"
+    echo -e "  brew install gh && gh auth login"
+    exit 1
 fi
 
 echo -e "${GREEN}  ✓ Versão: ${LATEST_VERSION}${NC}"
 
 # Download
-DOWNLOAD_URL="https://github.com/algarys/algarys_cli/releases/download/${LATEST_VERSION}/algarys_${OS}_${ARCH}.tar.gz"
 INSTALL_DIR="/usr/local/bin"
 TMP_DIR=$(mktemp -d)
 
-echo -e "${YELLOW}→ Baixando ${DOWNLOAD_URL}...${NC}"
-if ! curl -sL "$DOWNLOAD_URL" -o "$TMP_DIR/algarys.tar.gz"; then
-    echo -e "${RED}Erro ao baixar. Verifique se a release existe.${NC}"
-    rm -rf "$TMP_DIR"
-    exit 1
+echo -e "${YELLOW}→ Baixando algarys_${OS}_${ARCH}.tar.gz...${NC}"
+
+# Usar gh CLI para download (repos privados)
+if command -v gh &> /dev/null; then
+    if ! gh release download "$LATEST_VERSION" --repo algarys/algarys_cli --pattern "algarys_${OS}_${ARCH}.tar.gz" --dir "$TMP_DIR" 2>/dev/null; then
+        echo -e "${RED}Erro ao baixar. Verifique se a release existe.${NC}"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
+    mv "$TMP_DIR/algarys_${OS}_${ARCH}.tar.gz" "$TMP_DIR/algarys.tar.gz"
+else
+    # Fallback para curl (repos públicos)
+    DOWNLOAD_URL="https://github.com/algarys/algarys_cli/releases/download/${LATEST_VERSION}/algarys_${OS}_${ARCH}.tar.gz"
+    if ! curl -sL "$DOWNLOAD_URL" -o "$TMP_DIR/algarys.tar.gz"; then
+        echo -e "${RED}Erro ao baixar. Verifique se a release existe.${NC}"
+        rm -rf "$TMP_DIR"
+        exit 1
+    fi
 fi
 
 # Extrair
