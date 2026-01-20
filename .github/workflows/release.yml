@@ -40,7 +40,7 @@ jobs:
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           GIT_COMMIT=${GITHUB_SHA::8}
 
-          go build -ldflags "-X github.com/algarys/algarys/cmd.Version=${VERSION} -X github.com/algarys/algarys/cmd.BuildDate=${BUILD_DATE} -X github.com/algarys/algarys/cmd.GitCommit=${GIT_COMMIT}" -o algarys .
+          go build -ldflags "-X github.com/algarys/algarys_cli/cmd.Version=${VERSION} -X github.com/algarys/algarys_cli/cmd.BuildDate=${BUILD_DATE} -X github.com/algarys/algarys_cli/cmd.GitCommit=${GIT_COMMIT}" -o algarys .
 
           tar -czvf algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz algarys
 

@@ -39,7 +39,7 @@ echo -e "${YELLOW}→ Detectado: ${OS}/${ARCH}${NC}"
 
 # Buscar última versão
 echo -e "${YELLOW}→ Buscando última versão...${NC}"
-LATEST_VERSION=$(curl -s https://api.github.com/repos/algarys/algarys/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+LATEST_VERSION=$(curl -s https://api.github.com/repos/algarys/algarys_cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
 if [ -z "$LATEST_VERSION" ]; then
     echo -e "${RED}Erro ao buscar versão. Usando v0.1.0${NC}"
@@ -49,7 +49,7 @@ fi
 echo -e "${GREEN}  ✓ Versão: ${LATEST_VERSION}${NC}"
 
 # Download
-DOWNLOAD_URL="https://github.com/algarys/algarys/releases/download/${LATEST_VERSION}/algarys_${OS}_${ARCH}.tar.gz"
+DOWNLOAD_URL="https://github.com/algarys/algarys_cli/releases/download/${LATEST_VERSION}/algarys_${OS}_${ARCH}.tar.gz"
 INSTALL_DIR="/usr/local/bin"
 TMP_DIR=$(mktemp -d)
 

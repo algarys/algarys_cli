@@ -13,12 +13,12 @@ curl -fsSL https://raw.githubusercontent.com/algarys/algarys/main/install.sh | b
 ### Via Go
 
 ```bash
-go install github.com/algarys/algarys@latest
+go install github.com/algarys/algarys_cli@latest
 ```
 
 ### Manual
 
-Baixe o binário da [página de releases](https://github.com/algarys/algarys/releases) e adicione ao seu PATH.
+Baixe o binário da [página de releases](https://github.com/algarys/algarys_cli/releases) e adicione ao seu PATH.
 
 ## Uso
 

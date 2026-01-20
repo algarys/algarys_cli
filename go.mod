@@ -1,4 +1,4 @@
-module github.com/algarys/algarys
+module github.com/algarys/algarys_cli
 
 go 1.21
 
