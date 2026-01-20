@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          GIT_COMMIT=${GITHUB_SHA::8}
+
+          go build -ldflags "-X github.com/algarys/algarys/cmd.Version=${VERSION} -X github.com/algarys/algarys/cmd.BuildDate=${BUILD_DATE} -X github.com/algarys/algarys/cmd.GitCommit=${GIT_COMMIT}" -o algarys .
+
+          tar -czvf algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz algarys
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: algarys_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
