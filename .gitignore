@@ -1,0 +1,13 @@
+# Binary
+algarys
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Cache
+.algarys_update_check

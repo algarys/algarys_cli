@@ -24,6 +24,9 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	// Verificar updates após executar o comando
+	CheckForUpdates()
 }
 
 func init() {
@@ -69,6 +72,7 @@ func showWelcome() {
 		desc string
 	}{
 		{ui.IconRocket, "init", "Criar novo projeto Python"},
+		{ui.IconPackage, "update", "Atualizar o CLI"},
 		{ui.IconInfo, "version", "Mostrar versão do CLI"},
 		{ui.IconGear, "help", "Mostrar ajuda"},
 	}
