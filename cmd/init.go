@@ -6,9 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/algarys/algarys_cli/cmd/ui"
 	"github.com/charmbracelet/huh"
-	"github.com/fatih/color"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -38,25 +40,34 @@ func init() {
 
 func runInit(cmd *cobra.Command, args []string) {
 	// Banner
-	cyan := color.New(color.FgCyan, color.Bold)
-	cyan.Println("\n  █████╗ ██╗      ██████╗  █████╗ ██████╗ ██╗   ██╗███████╗")
-	cyan.Println(" ██╔══██╗██║     ██╔════╝ ██╔══██╗██╔══██╗╚██╗ ██╔╝██╔════╝")
-	cyan.Println(" ███████║██║     ██║  ███╗███████║██████╔╝ ╚████╔╝ ███████╗")
-	cyan.Println(" ██╔══██║██║     ██║   ██║██╔══██║██╔══██╗  ╚██╔╝  ╚════██║")
-	cyan.Println(" ██║  ██║███████╗╚██████╔╝██║  ██║██║  ██║   ██║   ███████║")
-	cyan.Println(" ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝")
 	fmt.Println()
-	color.New(color.FgWhite).Println(" Criando novo projeto Python com estrutura SOLID + AI\n")
+	fmt.Println(ui.RenderBanner())
+	fmt.Println()
+
+	// Subtítulo
+	subtitle := lipgloss.NewStyle().
+		Foreground(ui.TextDim).
+		Italic(true).
+		Render("  Criando novo projeto Python com estrutura SOLID + AI")
+	fmt.Println(subtitle)
+	fmt.Println()
 
 	config := ProjectConfig{
 		GitHubOrg: "algarys",
 	}
 
+	// Tema customizado para o formulário
+	theme := huh.ThemeBase()
+	theme.Focused.Title = theme.Focused.Title.Foreground(ui.Primary)
+	theme.Focused.SelectedOption = theme.Focused.SelectedOption.Foreground(ui.Primary)
+	theme.Focused.SelectSelector = theme.Focused.SelectSelector.Foreground(ui.Primary)
+	theme.Blurred.Title = theme.Blurred.Title.Foreground(ui.TextDim)
+
 	// Formulário interativo
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Nome do projeto").
+				Title("📦 Nome do projeto").
 				Description("Use kebab-case (ex: meu-projeto)").
 				Placeholder("meu-projeto").
 				Value(&config.Name).
@@ -71,13 +82,13 @@ func runInit(cmd *cobra.Command, args []string) {
 				}),
 
 			huh.NewInput().
-				Title("Descrição").
+				Title("📝 Descrição").
 				Description("Uma breve descrição do projeto").
 				Placeholder("Agente de IA para...").
 				Value(&config.Description),
 
 			huh.NewSelect[string]().
-				Title("Versão do Python").
+				Title("🐍 Versão do Python").
 				Options(
 					huh.NewOption("Python 3.12 (Recomendado)", "3.12"),
 					huh.NewOption("Python 3.11", "3.11"),
@@ -86,18 +97,19 @@ func runInit(cmd *cobra.Command, args []string) {
 				Value(&config.PythonVersion),
 
 			huh.NewConfirm().
-				Title("Criar repositório no GitHub?").
+				Title("🐙 Criar repositório no GitHub?").
 				Description("Será criado em github.com/algarys (requer gh auth login)").
 				Affirmative("Sim").
 				Negative("Não").
 				Value(&config.CreateGitHub),
 		),
-	)
+	).WithTheme(theme)
 
 	err := form.Run()
 	if err != nil {
 		if err.Error() == "user aborted" {
-			fmt.Println("\n Cancelado pelo usuário.")
+			fmt.Println()
+			fmt.Println(ui.RenderWarning("Cancelado pelo usuário"))
 			return
 		}
 		fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
@@ -109,80 +121,130 @@ func runInit(cmd *cobra.Command, args []string) {
 	moduleName := strings.ReplaceAll(config.Name, "-", "_")
 
 	fmt.Println()
-	printStep("Criando projeto: " + config.Name)
+
+	// Header do projeto
+	projectHeader := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ui.Primary).
+		Render(fmt.Sprintf("  %s Criando projeto: %s", ui.IconRocket, config.Name))
+	fmt.Println(projectHeader)
+	fmt.Println()
 
 	// Verificar se diretório já existe
 	if _, err := os.Stat(config.Name); !os.IsNotExist(err) {
-		color.Red("✗ Erro: diretório '%s' já existe", config.Name)
+		fmt.Println(ui.RenderError(fmt.Sprintf("Diretório '%s' já existe", config.Name)))
 		os.Exit(1)
 	}
 
 	// Criar diretório do projeto
 	if err := os.MkdirAll(config.Name, 0755); err != nil {
-		color.Red("✗ Erro ao criar diretório: %v", err)
+		fmt.Println(ui.RenderError(fmt.Sprintf("Erro ao criar diretório: %v", err)))
 		os.Exit(1)
 	}
 
-	// Criar estrutura completa
-	printStep("Criando estrutura SOLID + AI + Temporal...")
-	createProjectStructure(config.Name, moduleName)
-	printSuccess("Estrutura de pastas criada")
+	// Executar etapas com spinners
+	steps := []struct {
+		icon    string
+		message string
+		action  func() bool
+	}{
+		{ui.IconFolder, "Criando estrutura SOLID + AI + Temporal", func() bool {
+			createProjectStructure(config.Name, moduleName)
+			return true
+		}},
+		{ui.IconFile, "Gerando arquivos de configuração", func() bool {
+			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
+			return true
+		}},
+		{ui.IconGit, "Inicializando repositório Git", func() bool {
+			initLocalGit(config.Name)
+			return true
+		}},
+		{ui.IconPython, "Configurando ambiente UV", func() bool {
+			return initUV(config.Name)
+		}},
+	}
 
-	// Criar arquivos de configuração
-	printStep("Criando arquivos de configuração...")
-	createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-	printSuccess("pyproject.toml, .gitignore, README.md criados")
+	for _, step := range steps {
+		spinner := ui.NewSpinner(step.icon + "  " + step.message)
+		spinner.Start()
+		time.Sleep(300 * time.Millisecond) // Pequeno delay para visual
 
-	// Inicializar git
-	printStep("Inicializando Git...")
-	initLocalGit(config.Name)
-	printSuccess("Repositório Git inicializado")
+		success := step.action()
 
-	// Inicializar UV
-	printStep("Configurando UV...")
-	if initUV(config.Name) {
-		printSuccess("Ambiente virtual criado e dependências instaladas")
+		if success {
+			spinner.Success(step.message)
+		} else {
+			spinner.Warning(step.message + " (pulado)")
+		}
 	}
 
 	// Criar repositório no GitHub
 	if config.CreateGitHub {
 		repoName := fmt.Sprintf("algarys_%s", config.Name)
-		printStep("Criando repositório no GitHub...")
+
+		spinner := ui.NewSpinner(ui.IconGitHub + "  Criando repositório no GitHub")
+		spinner.Start()
+		time.Sleep(300 * time.Millisecond)
+
 		if createGitHubRepo(config.Name, config.Description, config.GitHubOrg) {
-			printSuccess(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
+			spinner.Success(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
 
 			// Configurar ruleset
-			printStep("Configurando regras de proteção...")
+			spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando regras de proteção")
+			spinner2.Start()
+			time.Sleep(300 * time.Millisecond)
+
 			if configureRuleset(repoName, config.GitHubOrg) {
-				printSuccess("Ruleset configurado: PR obrigatório + linear history")
+				spinner2.Success("Ruleset configurado (PR + linear history)")
 			} else {
-				printWarning("Não foi possível configurar ruleset automaticamente")
+				spinner2.Warning("Ruleset não configurado automaticamente")
 			}
+		} else {
+			spinner.Warning("Repositório não criado (verifique acesso)")
 		}
 	}
 
 	// Resumo final
 	fmt.Println()
-	color.Green("✓ Projeto %s criado com sucesso!", config.Name)
-	fmt.Println()
-	color.White("  Próximos passos:")
-	fmt.Println()
-	color.Cyan("    cd %s", config.Name)
-	color.Cyan("    uv sync")
-	color.Cyan("    uv run python -m %s", moduleName)
-	fmt.Println()
-}
 
-func printStep(msg string) {
-	color.New(color.FgYellow).Printf("→ %s\n", msg)
-}
+	// Success box
+	successBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ui.Primary).
+		Padding(1, 2).
+		Render(
+			lipgloss.NewStyle().Foreground(ui.Primary).Bold(true).Render(
+				fmt.Sprintf("%s Projeto %s criado com sucesso!", ui.IconDone, config.Name),
+			),
+		)
+	fmt.Println(successBox)
+	fmt.Println()
 
-func printSuccess(msg string) {
-	color.New(color.FgGreen).Printf("  ✓ %s\n", msg)
-}
+	// Próximos passos
+	nextStepsTitle := lipgloss.NewStyle().
+		Foreground(ui.TextDim).
+		Bold(true).
+		Render("  Próximos passos:")
+	fmt.Println(nextStepsTitle)
+	fmt.Println()
 
-func printWarning(msg string) {
-	color.New(color.FgYellow).Printf("  ⚠ %s\n", msg)
+	cmdStyle := lipgloss.NewStyle().
+		Foreground(ui.Primary).
+		PaddingLeft(4)
+
+	fmt.Println(cmdStyle.Render(fmt.Sprintf("cd %s", config.Name)))
+	fmt.Println(cmdStyle.Render("uv sync --all-extras"))
+	fmt.Println(cmdStyle.Render(fmt.Sprintf("uv run python -m %s", moduleName)))
+	fmt.Println()
+
+	// Dica
+	tipStyle := lipgloss.NewStyle().
+		Foreground(ui.Muted).
+		Italic(true).
+		PaddingLeft(2)
+	fmt.Println(tipStyle.Render(fmt.Sprintf("%s Dica: use 'algarys --help' para ver outros comandos", ui.IconMagic)))
+	fmt.Println()
 }
 
 func createProjectStructure(projectName, moduleName string) {
@@ -378,7 +440,6 @@ class BaseAgent(ABC):
 	toolExample := `"""Base para ferramentas de agentes."""
 from abc import ABC, abstractmethod
 from typing import Any
-from pydantic import BaseModel
 
 
 class BaseTool(ABC):
@@ -771,7 +832,7 @@ uv run mypy %s/
 
 ---
 
-Criado com [Algarys CLI](https://github.com/algarys/algarys)
+Criado com [Algarys CLI](https://github.com/algarys/algarys_cli)
 `, projectName, description, moduleName, pythonVersion, moduleName, moduleName, moduleName)
 
 	os.WriteFile(filepath.Join(projectName, "README.md"), []byte(readme), 0644)
@@ -779,7 +840,6 @@ Criado com [Algarys CLI](https://github.com/algarys/algarys)
 
 func initUV(projectName string) bool {
 	if _, err := exec.LookPath("uv"); err != nil {
-		printWarning("UV não encontrado. Instale com: curl -LsSf https://astral.sh/uv/install.sh | sh")
 		return false
 	}
 
@@ -789,7 +849,6 @@ func initUV(projectName string) bool {
 	cmd.Stderr = nil
 
 	if err := cmd.Run(); err != nil {
-		printWarning("Erro ao executar uv sync")
 		return false
 	}
 
@@ -798,8 +857,6 @@ func initUV(projectName string) bool {
 
 func createGitHubRepo(projectName, description, org string) bool {
 	if _, err := exec.LookPath("gh"); err != nil {
-		printWarning("GitHub CLI não encontrado. Instale com: brew install gh")
-		printWarning("Depois autentique com: gh auth login")
 		return false
 	}
 
@@ -807,7 +864,6 @@ func createGitHubRepo(projectName, description, org string) bool {
 	authCheck.Stdout = nil
 	authCheck.Stderr = nil
 	if err := authCheck.Run(); err != nil {
-		printWarning("GitHub CLI não autenticado. Execute: gh auth login")
 		return false
 	}
 
@@ -832,8 +888,6 @@ func createGitHubRepo(projectName, description, org string) bool {
 	cmd.Stderr = nil
 
 	if err := cmd.Run(); err != nil {
-		printWarning(fmt.Sprintf("Erro ao criar repo. Verifique se você tem acesso à org '%s'", org))
-		printWarning(fmt.Sprintf("Você pode criar manualmente: gh repo create %s/%s --private --source . --push", org, repoName))
 		return false
 	}
 

@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/algarys/algarys_cli/cmd/ui"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -16,9 +18,28 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Mostra a versão do CLI",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Algarys CLI v%s\n", Version)
-		fmt.Printf("Build: %s\n", BuildDate)
-		fmt.Printf("Commit: %s\n", GitCommit)
+		fmt.Println()
+
+		// Box com versão
+		versionText := lipgloss.NewStyle().
+			Foreground(ui.Primary).
+			Bold(true).
+			Render(fmt.Sprintf("Algarys CLI v%s", Version))
+
+		detailStyle := lipgloss.NewStyle().Foreground(ui.TextDim)
+
+		content := versionText + "\n\n" +
+			detailStyle.Render(fmt.Sprintf("Build:  %s", BuildDate)) + "\n" +
+			detailStyle.Render(fmt.Sprintf("Commit: %s", GitCommit))
+
+		box := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ui.Primary).
+			Padding(1, 2).
+			Render(content)
+
+		fmt.Println(box)
+		fmt.Println()
 	},
 }
 
