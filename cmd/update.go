@@ -174,18 +174,72 @@ func getLatestVersionHTTP() (*GitHubRelease, error) {
 }
 
 func runInstallScript() error {
-	var cmd *exec.Cmd
-
 	if runtime.GOOS == "windows" {
 		return fmt.Errorf("atualização automática não suportada no Windows")
 	}
 
-	// Baixar e executar script de instalação
-	cmd = exec.Command("bash", "-c", "curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Detectar OS e arquitetura
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
 
-	return cmd.Run()
+	// Criar diretório temporário
+	tmpDir, err := os.MkdirTemp("", "algarys-update-*")
+	if err != nil {
+		return fmt.Errorf("erro ao criar diretório temporário: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Baixar release via gh CLI (funciona com repo privado)
+	pattern := fmt.Sprintf("algarys_%s_%s.tar.gz", goos, goarch)
+	dlCmd := exec.Command("gh", "release", "download", "--repo",
+		fmt.Sprintf("%s/%s", repoOwner, repoName),
+		"--pattern", pattern, "--dir", tmpDir)
+	dlCmd.Stdout = nil
+	dlCmd.Stderr = nil
+
+	if err := dlCmd.Run(); err != nil {
+		return fmt.Errorf("erro ao baixar release: %v", err)
+	}
+
+	// Extrair
+	tarPath := fmt.Sprintf("%s/%s", tmpDir, pattern)
+	extractCmd := exec.Command("tar", "-xzf", tarPath, "-C", tmpDir)
+	if err := extractCmd.Run(); err != nil {
+		return fmt.Errorf("erro ao extrair: %v", err)
+	}
+
+	// Encontrar onde o binário atual está instalado
+	currentBin, err := exec.LookPath("algarys")
+	if err != nil {
+		currentBin = "/usr/local/bin/algarys"
+	}
+
+	// Copiar novo binário
+	newBin := fmt.Sprintf("%s/algarys", tmpDir)
+	var mvCmd *exec.Cmd
+
+	// Verificar se precisa de sudo
+	installDir := fmt.Sprintf("%s", currentBin)
+	testFile, testErr := os.OpenFile(installDir, os.O_WRONLY, 0)
+	if testErr != nil {
+		// Precisa de sudo
+		mvCmd = exec.Command("sudo", "cp", newBin, currentBin)
+	} else {
+		testFile.Close()
+		mvCmd = exec.Command("cp", newBin, currentBin)
+	}
+	mvCmd.Stdout = nil
+	mvCmd.Stderr = nil
+
+	if err := mvCmd.Run(); err != nil {
+		return fmt.Errorf("erro ao instalar binário: %v", err)
+	}
+
+	// Garantir permissão de execução
+	chmodCmd := exec.Command("chmod", "+x", currentBin)
+	chmodCmd.Run()
+
+	return nil
 }
 
 // CheckForUpdates verifica se há atualizações disponíveis
