@@ -244,11 +244,17 @@ func resolveAudioFile(input string) string {
 func searchAudioFile(fileName string) []string {
 	var results []string
 
-	if runtime.GOOS == "darwin" {
-		// macOS: usar Spotlight (mdfind) - busca instantânea
+	switch runtime.GOOS {
+	case "darwin":
+		// macOS: Spotlight (mdfind) - busca instantânea
 		results = searchWithSpotlight(fileName)
-	} else {
-		// Linux: buscar em diretórios comuns
+	case "linux":
+		// Linux: locate (se disponível) ou busca em diretórios
+		results = searchOnLinux(fileName)
+	case "windows":
+		// Windows: PowerShell ou busca em diretórios
+		results = searchOnWindows(fileName)
+	default:
 		results = searchInCommonDirs(fileName)
 	}
 
@@ -261,52 +267,113 @@ func searchAudioFile(fileName string) []string {
 }
 
 func searchWithSpotlight(fileName string) []string {
-	// mdfind busca pelo nome do arquivo no índice do Spotlight
 	cmd := exec.Command("mdfind", "-name", fileName)
 	output, err := cmd.Output()
 	if err != nil {
 		return searchInCommonDirs(fileName)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	return filterAudioResults(string(output))
+}
+
+func searchOnLinux(fileName string) []string {
+	// Tentar locate primeiro (muito rápido)
+	if _, err := exec.LookPath("locate"); err == nil {
+		cmd := exec.Command("locate", "-i", "--limit", "20", fileName)
+		output, err := cmd.Output()
+		if err == nil {
+			results := filterAudioResults(string(output))
+			if len(results) > 0 {
+				return results
+			}
+		}
+	}
+
+	// Fallback: buscar em diretórios comuns
+	return searchInCommonDirs(fileName)
+}
+
+func searchOnWindows(fileName string) []string {
+	// PowerShell: busca rápida no perfil do usuário
+	psScript := fmt.Sprintf(
+		`Get-ChildItem -Path $HOME -Recurse -Filter '%s' -ErrorAction SilentlyContinue | Select-Object -First 10 -ExpandProperty FullName`,
+		fileName,
+	)
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
+	output, err := cmd.Output()
+	if err == nil {
+		results := filterAudioResults(string(output))
+		if len(results) > 0 {
+			return results
+		}
+	}
+
+	// Fallback: buscar em diretórios comuns
+	return searchInCommonDirs(fileName)
+}
+
+func filterAudioResults(output string) []string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var results []string
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		// Filtrar só arquivos de áudio
 		ext := strings.ToLower(filepath.Ext(line))
 		if audioExtensions[ext] {
 			results = append(results, line)
 		}
 	}
-
 	return results
 }
 
 func searchInCommonDirs(fileName string) []string {
 	homeDir, _ := os.UserHomeDir()
+
+	// Diretórios comuns por OS
 	dirs := []string{
 		filepath.Join(homeDir, "Downloads"),
 		filepath.Join(homeDir, "Desktop"),
 		filepath.Join(homeDir, "Documents"),
 		filepath.Join(homeDir, "Music"),
-		homeDir,
 	}
+
+	// Windows: adicionar pastas específicas
+	if runtime.GOOS == "windows" {
+		dirs = append(dirs, filepath.Join(homeDir, "Videos"))
+		// Drives comuns
+		for _, drive := range []string{"D:\\", "E:\\"} {
+			if _, err := os.Stat(drive); err == nil {
+				dirs = append(dirs, drive)
+			}
+		}
+	}
+
+	// Adicionar home por último (mais amplo)
+	dirs = append(dirs, homeDir)
 
 	var results []string
 	seen := map[string]bool{}
 
+	// Diretórios para pular em qualquer OS
+	skipDirs := map[string]bool{
+		"node_modules": true, "__pycache__": true, ".git": true,
+		"vendor": true, ".cache": true, ".npm": true, ".venv": true,
+		"AppData": true, "Library": true,
+	}
+
 	for _, dir := range dirs {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return filepath.SkipDir
 			}
 			if info.IsDir() {
-				// Não entrar em diretórios ocultos ou node_modules
 				name := info.Name()
-				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" {
+				if strings.HasPrefix(name, ".") || skipDirs[name] {
 					return filepath.SkipDir
 				}
 				return nil
@@ -331,6 +398,9 @@ func searchInCommonDirs(fileName string) []string {
 func abbreviatePath(path string) string {
 	homeDir, _ := os.UserHomeDir()
 	if strings.HasPrefix(path, homeDir) {
+		if runtime.GOOS == "windows" {
+			return "%USERPROFILE%" + path[len(homeDir):]
+		}
 		return "~" + path[len(homeDir):]
 	}
 	return path
