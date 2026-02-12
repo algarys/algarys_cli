@@ -2,53 +2,48 @@
 
 CLI oficial da Algarys para criação e gerenciamento de projetos.
 
-## Instalação
-
-### Via script (recomendado)
+## Instalacao
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/algarys/algarys/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash
 ```
 
-### Via Go
+### Outras opcoes
 
+**Via Go:**
 ```bash
 go install github.com/algarys/algarys_cli@latest
 ```
 
-### Manual
+**Manual:**
+Baixe o binario da [pagina de releases](https://github.com/algarys/algarys_cli/releases) e adicione ao seu PATH.
 
-Baixe o binário da [página de releases](https://github.com/algarys/algarys_cli/releases) e adicione ao seu PATH.
+## Comandos
 
-## Uso
+### `algarys init`
 
-### Criar novo projeto
+Cria novo projeto Python com arquitetura SOLID.
 
 ```bash
 algarys init
 ```
 
-O comando interativo vai perguntar:
-- Nome do projeto
-- Descrição
-- Versão do Python
-- Se deseja criar repositório no GitHub
+O comando interativo pergunta nome, descricao, versao do Python e se deseja criar repositorio no GitHub (requer login).
 
-### Estrutura criada
+**Estrutura criada:**
 
 ```
 meu-projeto/
 ├── meu_projeto/
-│   ├── domain/           # Entidades e regras de negócio
-│   ├── application/      # Casos de uso e serviços
-│   ├── infrastructure/   # Implementações concretas
+│   ├── domain/           # Entidades e regras de negocio
+│   ├── application/      # Casos de uso e servicos
+│   ├── infrastructure/   # Implementacoes concretas
 │   ├── interfaces/       # API e CLI
 │   ├── ai/               # Agentes de IA
 │   │   ├── agents/
 │   │   ├── tools/
-│   │   ├── prompts/
-│   │   └── ...
-│   └── temporal/         # Orquestração Temporal
+│   │   └── prompts/
+│   └── temporal/         # Orquestracao Temporal
 │       ├── activities/
 │       ├── workflows/
 │       └── worker/
@@ -57,47 +52,85 @@ meu-projeto/
 └── README.md
 ```
 
-### Funcionalidades
+### `algarys transcribe`
 
-- **Estrutura SOLID** - Arquitetura em camadas pronta para escalar
-- **Módulo AI** - Estrutura para agentes, tools e prompts
-- **Temporal** - Workers e workflows pré-configurados
-- **GitHub** - Cria repo privado em `github.com/algarys` automaticamente
-- **Ruleset** - Configura proteção da branch main (PR obrigatório + linear history)
-- **UV** - Gerenciamento de dependências moderno
+Transcreve arquivos de audio para texto usando OpenAI Whisper localmente.
+
+```bash
+# Passar caminho do arquivo
+algarys transcribe gravacao.mp3
+
+# Passar apenas o nome - busca automatica no computador
+algarys transcribe reuniao.mp3
+
+# Escolher modelo e idioma
+algarys transcribe audio.wav -m tiny -l pt
+```
+
+**Flags:**
+| Flag | Descricao | Default |
+|------|-----------|---------|
+| `-m, --model` | Modelo Whisper (tiny, base, small, medium, large) | large |
+| `-l, --lang` | Codigo do idioma (pt, en, es...) | auto |
+
+Na primeira execucao, o CLI configura automaticamente o ambiente Python com as dependencias necessarias.
+
+**Requisitos:** [UV](https://docs.astral.sh/uv/) e [ffmpeg](https://ffmpeg.org/)
+
+### `algarys login`
+
+Autentica no GitHub para acessar funcionalidades da empresa.
+
+```bash
+algarys login
+```
+
+**Necessario para:** criar repositorios na org (`algarys init`), atualizar o CLI (`algarys update`).
+
+**Nao necessario para:** transcrever audio (`algarys transcribe`).
+
+### `algarys logout`
+
+Desconecta da conta GitHub.
+
+```bash
+algarys logout
+```
+
+### `algarys update`
+
+Atualiza o CLI para a ultima versao.
+
+```bash
+algarys update
+```
+
+### `algarys version`
+
+Mostra a versao instalada.
+
+```bash
+algarys version
+```
 
 ## Requisitos
 
-Para usar todas as funcionalidades:
-
-- [UV](https://docs.astral.sh/uv/) - Gerenciador de pacotes Python
-- [GitHub CLI](https://cli.github.com/) - Para criar repositórios
-
-```bash
-# Instalar UV
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Instalar e autenticar GitHub CLI
-brew install gh
-gh auth login
-```
+| Ferramenta | Para que | Instalacao |
+|------------|----------|------------|
+| [UV](https://docs.astral.sh/uv/) | Projetos Python e transcricao | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| [GitHub CLI](https://cli.github.com/) | Login e criar repos | `brew install gh` |
+| [ffmpeg](https://ffmpeg.org/) | Transcricao de audio | `brew install ffmpeg` |
 
 ## Desenvolvimento
 
-### Build local
-
 ```bash
+# Build local
 go build -o algarys .
-```
 
-### Criar release
-
-```bash
+# Criar release (GitHub Actions gera os binarios)
 git tag v0.1.0
 git push origin v0.1.0
 ```
-
-O GitHub Actions vai automaticamente criar os binários e a release.
 
 ---
 
