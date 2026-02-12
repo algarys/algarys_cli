@@ -17,7 +17,7 @@ import (
 const algarysDir = ".algarys"
 const transcribeDir = "transcricao"
 
-// Script Python embutido
+// Script Python embutido - prints de status vão para stderr, texto final para stdout
 const transcribePyScript = `#!/usr/bin/env python3
 """Script de Transcrição de Áudio usando Whisper."""
 
@@ -30,55 +30,37 @@ import whisper
 
 
 def transcrever_audio(caminho_audio: str, modelo: str = "large", idioma: str = None) -> str:
-    print(f"🔄 Carregando modelo '{modelo}'...")
+    print(f"STATUS:Carregando modelo '{modelo}'...", file=sys.stderr)
     model = whisper.load_model(modelo)
 
-    print(f"🎧 Transcrevendo: {caminho_audio}")
+    print(f"STATUS:Transcrevendo áudio...", file=sys.stderr)
 
     opcoes = {}
     if idioma:
         opcoes["language"] = idioma
-        print(f"📝 Idioma definido: {idioma}")
 
     resultado = model.transcribe(caminho_audio, **opcoes)
     return resultado["text"]
 
 
-def salvar_transcricao(texto: str, caminho_saida: str) -> None:
-    with open(caminho_saida, "w", encoding="utf-8") as f:
-        f.write(texto)
-    print(f"✅ Transcrição salva em: {caminho_saida}")
-
-
 def main():
     parser = argparse.ArgumentParser(description="Transcreve áudio para texto usando Whisper")
     parser.add_argument("arquivo", help="Caminho para o arquivo de áudio")
-    parser.add_argument("-o", "--output", help="Caminho do arquivo de saída")
     parser.add_argument("-m", "--modelo", default="large",
                         choices=["tiny", "base", "small", "medium", "large"])
     parser.add_argument("-l", "--idioma", help="Código do idioma (pt, en, es)")
     args = parser.parse_args()
 
     if not os.path.exists(args.arquivo):
-        print(f"❌ Erro: Arquivo não encontrado: {args.arquivo}")
+        print(f"ERRO:Arquivo não encontrado: {args.arquivo}", file=sys.stderr)
         sys.exit(1)
-
-    if args.output:
-        caminho_saida = args.output
-    else:
-        caminho_saida = str(Path(args.arquivo).with_suffix(".txt"))
 
     try:
         texto = transcrever_audio(args.arquivo, args.modelo, args.idioma)
-        salvar_transcricao(texto, caminho_saida)
-
-        print("\n📄 Prévia da transcrição:")
-        print("-" * 50)
-        preview = texto[:500] + "..." if len(texto) > 500 else texto
-        print(preview)
-        print("-" * 50)
+        # Texto final vai para stdout (limpo, sem prefixo)
+        print(texto)
     except Exception as e:
-        print(f"❌ Erro durante a transcrição: {e}")
+        print(f"ERRO:{e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -98,9 +80,8 @@ dependencies = [
 `
 
 var (
-	transcribeModel  string
-	transcribeLang   string
-	transcribeOutput string
+	transcribeModel string
+	transcribeLang  string
 )
 
 var transcribeCmd = &cobra.Command{
@@ -124,7 +105,6 @@ Requer: uv, ffmpeg, Python 3.10+`,
 func init() {
 	transcribeCmd.Flags().StringVarP(&transcribeModel, "model", "m", "large", "Modelo Whisper (tiny, base, small, medium, large)")
 	transcribeCmd.Flags().StringVarP(&transcribeLang, "lang", "l", "", "Código do idioma (pt, en, es). Padrão: auto-detectar")
-	transcribeCmd.Flags().StringVarP(&transcribeOutput, "output", "o", "", "Arquivo de saída (padrão: <nome>.txt)")
 	rootCmd.AddCommand(transcribeCmd)
 }
 
@@ -168,7 +148,16 @@ func runTranscribe(cmd *cobra.Command, args []string) {
 	}
 
 	// Executar transcrição
-	runTranscription(projectDir, absAudioFile)
+	transcribedText := runTranscription(projectDir, absAudioFile)
+	if transcribedText == "" {
+		return
+	}
+
+	// Mostrar texto transcrito
+	showTranscribedText(transcribedText)
+
+	// Perguntar se quer salvar
+	askToSaveTranscription(transcribedText, absAudioFile)
 }
 
 func checkTranscribeDeps() bool {
@@ -201,7 +190,6 @@ func getTranscribeDir() string {
 }
 
 func isTranscribeSetup(projectDir string) bool {
-	// Verificar se o script e o .venv existem
 	scriptPath := filepath.Join(projectDir, "transcrever.py")
 	venvPath := filepath.Join(projectDir, ".venv")
 
@@ -222,13 +210,11 @@ func setupTranscribeEnv(projectDir string) bool {
 		Render("Primeira execução - configurando ambiente..."))
 	fmt.Println()
 
-	// Criar diretório
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		fmt.Println(ui.RenderError(fmt.Sprintf("Erro ao criar diretório: %v", err)))
 		return false
 	}
 
-	// Escrever script Python
 	spinner := ui.NewSpinner(ui.IconFile + "  Criando script de transcrição...")
 	spinner.Start()
 	time.Sleep(200 * time.Millisecond)
@@ -239,7 +225,6 @@ func setupTranscribeEnv(projectDir string) bool {
 		return false
 	}
 
-	// Escrever pyproject.toml
 	pyprojectPath := filepath.Join(projectDir, "pyproject.toml")
 	if err := os.WriteFile(pyprojectPath, []byte(transcribePyProject), 0644); err != nil {
 		spinner.Error("Erro ao criar pyproject.toml")
@@ -247,7 +232,6 @@ func setupTranscribeEnv(projectDir string) bool {
 	}
 	spinner.Success("Script de transcrição criado")
 
-	// Instalar dependências com uv
 	spinnerDeps := ui.NewSpinner(ui.IconPython + "  Instalando dependências (whisper + torch)...")
 	spinnerDeps.Start()
 
@@ -271,11 +255,16 @@ func setupTranscribeEnv(projectDir string) bool {
 	return true
 }
 
-func runTranscription(projectDir, audioFile string) {
-	// Informações do arquivo
+func runTranscription(projectDir, audioFile string) string {
+	// Info do arquivo
 	fileInfo, _ := os.Stat(audioFile)
 	fileName := filepath.Base(audioFile)
 	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
+
+	langDisplay := "auto-detectar"
+	if transcribeLang != "" {
+		langDisplay = transcribeLang
+	}
 
 	infoBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -286,88 +275,216 @@ func runTranscription(projectDir, audioFile string) {
 				lipgloss.NewStyle().Foreground(ui.Primary).Render(fileName) + "\n" +
 				lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Render("Tamanho: ") +
 				lipgloss.NewStyle().Foreground(ui.TextDim).Render(fmt.Sprintf("%.1f MB", fileSizeMB)) + "\n" +
-				lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Render("Modelo: ") +
+				lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Render("Modelo:  ") +
 				lipgloss.NewStyle().Foreground(ui.Primary).Render(transcribeModel) + "\n" +
-				lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Render("Idioma: ") +
-				lipgloss.NewStyle().Foreground(ui.TextDim).Render(func() string {
-				if transcribeLang != "" {
-					return transcribeLang
-				}
-				return "auto-detectar"
-			}()),
+				lipgloss.NewStyle().Foreground(ui.Text).Bold(true).Render("Idioma:  ") +
+				lipgloss.NewStyle().Foreground(ui.TextDim).Render(langDisplay),
 		)
 	fmt.Println(infoBox)
 	fmt.Println()
 
-	// Montar argumentos
+	// Montar argumentos (sem -o, a saída vai para stdout)
 	uvArgs := []string{"run", "python", "transcrever.py", audioFile, "-m", transcribeModel}
 	if transcribeLang != "" {
 		uvArgs = append(uvArgs, "-l", transcribeLang)
 	}
-	if transcribeOutput != "" {
-		absOutput, _ := filepath.Abs(transcribeOutput)
-		uvArgs = append(uvArgs, "-o", absOutput)
-	}
 
-	// Executar
+	// Spinner enquanto transcreve
+	spinner := ui.NewSpinner("🎧  Transcrevendo áudio...")
+	spinner.Start()
+
 	uvCmd := exec.Command("uv", uvArgs...)
 	uvCmd.Dir = projectDir
 
-	// Capturar output em tempo real
-	stdout, err := uvCmd.StdoutPipe()
+	// stdout = texto transcrito, stderr = mensagens de status
+	stdoutPipe, err := uvCmd.StdoutPipe()
 	if err != nil {
-		fmt.Println(ui.RenderError(fmt.Sprintf("Erro: %v", err)))
-		return
+		spinner.Error("Erro ao iniciar transcrição")
+		return ""
 	}
-	uvCmd.Stderr = uvCmd.Stdout
+
+	stderrPipe, err := uvCmd.StderrPipe()
+	if err != nil {
+		spinner.Error("Erro ao iniciar transcrição")
+		return ""
+	}
 
 	if err := uvCmd.Start(); err != nil {
-		fmt.Println(ui.RenderError(fmt.Sprintf("Erro ao iniciar transcrição: %v", err)))
-		return
+		spinner.Error(fmt.Sprintf("Erro ao iniciar: %v", err))
+		return ""
 	}
 
-	// Ler output linha a linha
-	scanner := bufio.NewScanner(stdout)
-	outputLines := []string{}
-	for scanner.Scan() {
-		line := scanner.Text()
-		outputLines = append(outputLines, line)
+	// Ler stderr em background (mensagens de status do Whisper)
+	go func() {
+		stderrScanner := bufio.NewScanner(stderrPipe)
+		for stderrScanner.Scan() {
+			line := stderrScanner.Text()
+			// Atualizar spinner com mensagens de status
+			if strings.HasPrefix(line, "STATUS:") {
+				msg := strings.TrimPrefix(line, "STATUS:")
+				spinner.Stop()
+				spinner = ui.NewSpinner("🎧  " + msg)
+				spinner.Start()
+			}
+		}
+	}()
 
-		// Mostrar output estilizado
-		styledLine := lipgloss.NewStyle().
-			PaddingLeft(2).
-			Foreground(ui.TextDim).
-			Render(line)
-		fmt.Println(styledLine)
+	// Ler stdout (texto transcrito)
+	var textBuilder strings.Builder
+	stdoutScanner := bufio.NewScanner(stdoutPipe)
+	// Buffer maior para textos longos
+	buf := make([]byte, 0, 1024*1024)
+	stdoutScanner.Buffer(buf, 10*1024*1024)
+	for stdoutScanner.Scan() {
+		textBuilder.WriteString(stdoutScanner.Text())
+		textBuilder.WriteString("\n")
 	}
 
 	err = uvCmd.Wait()
-	fmt.Println()
+	spinner.Stop()
 
 	if err != nil {
 		fmt.Println(ui.RenderError("Transcrição falhou"))
 		fmt.Println()
+		return ""
+	}
+
+	text := strings.TrimSpace(textBuilder.String())
+	if text == "" {
+		fmt.Println(ui.RenderWarning("Nenhum texto detectado no áudio"))
+		fmt.Println()
+		return ""
+	}
+
+	fmt.Println(ui.RenderSuccess("Transcrição concluída!"))
+	fmt.Println()
+	return text
+}
+
+func showTranscribedText(text string) {
+	// Título
+	titleStyle := lipgloss.NewStyle().
+		Foreground(ui.Primary).
+		Bold(true).
+		PaddingLeft(2)
+	fmt.Println(titleStyle.Render("📄 Texto transcrito:"))
+	fmt.Println()
+
+	// Caixa com o texto
+	textBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ui.Muted).
+		Padding(1, 2).
+		Width(80).
+		Foreground(ui.Text).
+		Render(text)
+	fmt.Println(textBox)
+	fmt.Println()
+}
+
+func askToSaveTranscription(text, audioFile string) {
+	reader := bufio.NewReader(os.Stdin)
+
+	// Perguntar se quer salvar
+	savePrompt := lipgloss.NewStyle().
+		Foreground(ui.Primary).
+		Bold(true).
+		PaddingLeft(2).
+		Render("Deseja salvar em um arquivo de texto?")
+	fmt.Print(savePrompt)
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.TextDim).Render(" [S/n] "))
+
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response != "" && response != "s" && response != "sim" {
+		fmt.Println()
+		fmt.Println(lipgloss.NewStyle().
+			Foreground(ui.Muted).
+			Italic(true).
+			PaddingLeft(2).
+			Render("Transcrição não salva."))
+		fmt.Println()
 		return
 	}
 
-	// Determinar arquivo de saída
-	outputFile := transcribeOutput
-	if outputFile == "" {
-		ext := filepath.Ext(audioFile)
-		outputFile = strings.TrimSuffix(audioFile, ext) + ".txt"
+	// Sugerir nome do arquivo
+	ext := filepath.Ext(audioFile)
+	suggestedName := strings.TrimSuffix(filepath.Base(audioFile), ext) + ".txt"
+
+	namePrompt := lipgloss.NewStyle().
+		Foreground(ui.Primary).
+		Bold(true).
+		PaddingLeft(2).
+		Render("Nome do arquivo:")
+	fmt.Println()
+	fmt.Print(namePrompt)
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.TextDim).Render(fmt.Sprintf(" (%s) ", suggestedName)))
+
+	fileName, _ := reader.ReadString('\n')
+	fileName = strings.TrimSpace(fileName)
+
+	// Usar nome sugerido se vazio
+	if fileName == "" {
+		fileName = suggestedName
 	}
 
-	// Sucesso
+	// Adicionar .txt se não tiver extensão
+	if !strings.Contains(fileName, ".") {
+		fileName = fileName + ".txt"
+	}
+
+	// Resolver caminho - salvar no diretório do áudio
+	audioDir := filepath.Dir(audioFile)
+	outputPath := filepath.Join(audioDir, fileName)
+
+	// Se o usuário passou um caminho absoluto, respeitar
+	if filepath.IsAbs(fileName) {
+		outputPath = fileName
+	}
+
+	// Confirmar
+	fmt.Println()
+	confirmPrompt := lipgloss.NewStyle().
+		Foreground(ui.TextDim).
+		PaddingLeft(2).
+		Render(fmt.Sprintf("Salvar em: %s", outputPath))
+	fmt.Println(confirmPrompt)
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(2).Bold(true).Render("Confirmar?"))
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.TextDim).Render(" [S/n] "))
+
+	confirm, _ := reader.ReadString('\n')
+	confirm = strings.TrimSpace(strings.ToLower(confirm))
+
+	if confirm != "" && confirm != "s" && confirm != "sim" {
+		fmt.Println()
+		fmt.Println(lipgloss.NewStyle().
+			Foreground(ui.Muted).
+			Italic(true).
+			PaddingLeft(2).
+			Render("Transcrição não salva."))
+		fmt.Println()
+		return
+	}
+
+	// Salvar
+	if err := os.WriteFile(outputPath, []byte(text), 0644); err != nil {
+		fmt.Println()
+		fmt.Println(ui.RenderError(fmt.Sprintf("Erro ao salvar: %v", err)))
+		return
+	}
+
+	fmt.Println()
 	successBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ui.Primary).
 		Padding(1, 2).
 		Render(
 			lipgloss.NewStyle().Foreground(ui.Primary).Bold(true).Render(
-				fmt.Sprintf("%s Transcrição concluída!", ui.IconDone),
+				fmt.Sprintf("%s Arquivo salvo!", ui.IconDone),
 			) + "\n\n" +
-				lipgloss.NewStyle().Foreground(ui.TextDim).Render("Arquivo salvo em: ") +
-				lipgloss.NewStyle().Foreground(ui.Primary).Render(outputFile),
+				lipgloss.NewStyle().Foreground(ui.TextDim).Render("Local: ") +
+				lipgloss.NewStyle().Foreground(ui.Primary).Render(outputPath),
 		)
 	fmt.Println(successBox)
 	fmt.Println()
