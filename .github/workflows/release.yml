@@ -22,6 +22,10 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
 
     steps:
       - uses: actions/checkout@v4
@@ -40,15 +44,26 @@ jobs:
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           GIT_COMMIT=${GITHUB_SHA::8}
 
-          go build -ldflags "-X github.com/algarys/algarys_cli/cmd.Version=${VERSION} -X github.com/algarys/algarys_cli/cmd.BuildDate=${BUILD_DATE} -X github.com/algarys/algarys_cli/cmd.GitCommit=${GIT_COMMIT}" -o algarys .
+          EXT=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=".exe"
+          fi
 
-          tar -czvf algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz algarys
+          go build -ldflags "-X github.com/algarys/algarys_cli/cmd.Version=${VERSION} -X github.com/algarys/algarys_cli/cmd.BuildDate=${BUILD_DATE} -X github.com/algarys/algarys_cli/cmd.GitCommit=${GIT_COMMIT}" -o algarys${EXT} .
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip algarys_${{ matrix.goos }}_${{ matrix.goarch }}.zip algarys${EXT}
+          else
+            tar -czvf algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz algarys${EXT}
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: algarys_${{ matrix.goos }}_${{ matrix.goarch }}
-          path: algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          path: |
+            algarys_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+            algarys_${{ matrix.goos }}_${{ matrix.goarch }}.zip
 
   release:
     needs: build
@@ -65,7 +80,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

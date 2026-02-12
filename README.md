@@ -4,13 +4,19 @@ CLI oficial da Algarys para criação e gerenciamento de projetos.
 
 ## Instalacao
 
+**macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash
 ```
 
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/algarys/algarys_cli/main/install.ps1 | iex
+```
+
 ### Outras opcoes
 
-**Via Go:**
+**Via Go (qualquer OS):**
 ```bash
 go install github.com/algarys/algarys_cli@latest
 ```
