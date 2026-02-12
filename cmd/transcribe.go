@@ -200,7 +200,19 @@ func isTranscribeSetup(projectDir string) bool {
 		return false
 	}
 
+	// Sempre atualizar o script para a versão embutida no CLI
+	syncTranscribeScript(projectDir)
+
 	return true
+}
+
+func syncTranscribeScript(projectDir string) {
+	scriptPath := filepath.Join(projectDir, "transcrever.py")
+
+	current, err := os.ReadFile(scriptPath)
+	if err != nil || string(current) != transcribePyScript {
+		os.WriteFile(scriptPath, []byte(transcribePyScript), 0644)
+	}
 }
 
 func setupTranscribeEnv(projectDir string) bool {
