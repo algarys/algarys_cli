@@ -73,9 +73,9 @@ func showWelcome() {
 	}{
 		{ui.IconRocket, "init", "Criar novo projeto Python"},
 		{"🎧", "transcribe", "Transcrever áudio para texto"},
+		{ui.IconKey, "login", "Autenticar na Algarys"},
 		{ui.IconPackage, "update", "Atualizar o CLI"},
 		{ui.IconInfo, "version", "Mostrar versão do CLI"},
-		{ui.IconGear, "help", "Mostrar ajuda"},
 	}
 
 	for _, c := range commands {

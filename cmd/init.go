@@ -181,27 +181,35 @@ func runInit(cmd *cobra.Command, args []string) {
 
 	// Criar repositório no GitHub
 	if config.CreateGitHub {
-		repoName := fmt.Sprintf("algarys_%s", config.Name)
+		// Verificar se está autenticado
+		if !IsLoggedIn() {
+			fmt.Println()
+			fmt.Println(ui.RenderWarning("Você precisa estar autenticado para criar repos na org."))
+			fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render("Execute: algarys login"))
+			fmt.Println()
+		} else {
+			repoName := fmt.Sprintf("algarys_%s", config.Name)
 
-		spinner := ui.NewSpinner(ui.IconGitHub + "  Criando repositório no GitHub")
-		spinner.Start()
-		time.Sleep(300 * time.Millisecond)
-
-		if createGitHubRepo(config.Name, config.Description, config.GitHubOrg) {
-			spinner.Success(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
-
-			// Configurar ruleset
-			spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando regras de proteção")
-			spinner2.Start()
+			spinner := ui.NewSpinner(ui.IconGitHub + "  Criando repositório no GitHub")
+			spinner.Start()
 			time.Sleep(300 * time.Millisecond)
 
-			if configureRuleset(repoName, config.GitHubOrg) {
-				spinner2.Success("Ruleset configurado (PR + linear history)")
+			if createGitHubRepo(config.Name, config.Description, config.GitHubOrg) {
+				spinner.Success(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
+
+				// Configurar ruleset
+				spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando regras de proteção")
+				spinner2.Start()
+				time.Sleep(300 * time.Millisecond)
+
+				if configureRuleset(repoName, config.GitHubOrg) {
+					spinner2.Success("Ruleset configurado (PR + linear history)")
+				} else {
+					spinner2.Warning("Ruleset não configurado automaticamente")
+				}
 			} else {
-				spinner2.Warning("Ruleset não configurado automaticamente")
+				spinner.Warning("Repositório não criado (verifique acesso)")
 			}
-		} else {
-			spinner.Warning("Repositório não criado (verifique acesso)")
 		}
 	}
 
