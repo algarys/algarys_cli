@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -267,19 +268,35 @@ func searchAudioFile(fileName string) []string {
 }
 
 func searchWithSpotlight(fileName string) []string {
-	cmd := exec.Command("mdfind", "-name", fileName)
+	// mdfind com timeout de 10s
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "mdfind", "-name", fileName)
 	output, err := cmd.Output()
-	if err != nil {
-		return searchInCommonDirs(fileName)
+	if err == nil {
+		results := filterAudioResults(string(output))
+		if len(results) > 0 {
+			return results
+		}
 	}
 
-	return filterAudioResults(string(output))
+	// Fallback: find (funciona mesmo sem Spotlight)
+	results := searchWithFind(fileName)
+	if len(results) > 0 {
+		return results
+	}
+
+	return searchInCommonDirs(fileName)
 }
 
 func searchOnLinux(fileName string) []string {
-	// Tentar locate primeiro (muito rápido)
+	// Tentar locate primeiro (muito rápido, se disponível)
 	if _, err := exec.LookPath("locate"); err == nil {
-		cmd := exec.Command("locate", "-i", "--limit", "20", fileName)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "locate", "-i", "--limit", "20", fileName)
 		output, err := cmd.Output()
 		if err == nil {
 			results := filterAudioResults(string(output))
@@ -289,17 +306,50 @@ func searchOnLinux(fileName string) []string {
 		}
 	}
 
-	// Fallback: buscar em diretórios comuns
+	// find - funciona em qualquer terminal (bash, zsh, fish, etc)
+	results := searchWithFind(fileName)
+	if len(results) > 0 {
+		return results
+	}
+
 	return searchInCommonDirs(fileName)
 }
 
-func searchOnWindows(fileName string) []string {
-	// PowerShell: busca rápida no perfil do usuário
-	psScript := fmt.Sprintf(
-		`Get-ChildItem -Path $HOME -Recurse -Filter '%s' -ErrorAction SilentlyContinue | Select-Object -First 10 -ExpandProperty FullName`,
-		fileName,
+// searchWithFind usa o comando find com timeout - funciona em macOS e Linux
+func searchWithFind(fileName string) []string {
+	homeDir, _ := os.UserHomeDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// -iname = case insensitive, -maxdepth 6 = não ir muito fundo
+	cmd := exec.CommandContext(ctx, "find", homeDir,
+		"-maxdepth", "6",
+		"-iname", fileName,
+		"-type", "f",
+		"-not", "-path", "*/.*",
+		"-not", "-path", "*/node_modules/*",
+		"-not", "-path", "*/__pycache__/*",
+		"-not", "-path", "*/Library/*",
 	)
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
+	output, err := cmd.Output()
+	// find retorna exit code 1 mesmo com resultados parciais (permissão negada em alguns dirs)
+	// então verificamos o output independente do erro
+	if err != nil && len(output) == 0 {
+		return nil
+	}
+
+	return filterAudioResults(string(output))
+}
+
+func searchOnWindows(fileName string) []string {
+	homeDir, _ := os.UserHomeDir()
+
+	// where /R - nativo do Windows, mais rápido que PowerShell
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "where", "/R", homeDir, fileName)
 	output, err := cmd.Output()
 	if err == nil {
 		results := filterAudioResults(string(output))
@@ -308,7 +358,23 @@ func searchOnWindows(fileName string) []string {
 		}
 	}
 
-	// Fallback: buscar em diretórios comuns
+	// Fallback: PowerShell com timeout
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel2()
+
+	psScript := fmt.Sprintf(
+		`Get-ChildItem -Path $HOME -Recurse -Filter '%s' -ErrorAction SilentlyContinue | Select-Object -First 10 -ExpandProperty FullName`,
+		fileName,
+	)
+	cmd2 := exec.CommandContext(ctx2, "powershell", "-NoProfile", "-Command", psScript)
+	output2, err := cmd2.Output()
+	if err == nil {
+		results := filterAudioResults(string(output2))
+		if len(results) > 0 {
+			return results
+		}
+	}
+
 	return searchInCommonDirs(fileName)
 }
 
@@ -328,35 +394,63 @@ func filterAudioResults(output string) []string {
 	return results
 }
 
-func searchInCommonDirs(fileName string) []string {
+// getUserDirs retorna os diretórios do usuário, respeitando localização do sistema
+func getUserDirs() []string {
 	homeDir, _ := os.UserHomeDir()
+	seen := map[string]bool{}
+	var dirs []string
 
-	// Diretórios comuns por OS
-	dirs := []string{
-		filepath.Join(homeDir, "Downloads"),
-		filepath.Join(homeDir, "Desktop"),
-		filepath.Join(homeDir, "Documents"),
-		filepath.Join(homeDir, "Music"),
-	}
-
-	// Windows: adicionar pastas específicas
-	if runtime.GOOS == "windows" {
-		dirs = append(dirs, filepath.Join(homeDir, "Videos"))
-		// Drives comuns
-		for _, drive := range []string{"D:\\", "E:\\"} {
-			if _, err := os.Stat(drive); err == nil {
-				dirs = append(dirs, drive)
+	addDir := func(d string) {
+		if d != "" && !seen[d] {
+			if _, err := os.Stat(d); err == nil {
+				seen[d] = true
+				dirs = append(dirs, d)
 			}
 		}
 	}
 
-	// Adicionar home por último (mais amplo)
-	dirs = append(dirs, homeDir)
+	if runtime.GOOS == "linux" {
+		// XDG: detecta diretórios localizados (Documentos, Área de Trabalho, etc)
+		for _, xdgKey := range []string{"DOWNLOAD", "DESKTOP", "DOCUMENTS", "MUSIC", "VIDEOS"} {
+			cmd := exec.Command("xdg-user-dir", xdgKey)
+			out, err := cmd.Output()
+			if err == nil {
+				addDir(strings.TrimSpace(string(out)))
+			}
+		}
+	}
+
+	// Nomes em inglês (padrão macOS/Windows e fallback Linux)
+	for _, name := range []string{"Downloads", "Desktop", "Documents", "Music", "Videos"} {
+		addDir(filepath.Join(homeDir, name))
+	}
+
+	// Nomes em português (comum em Linux BR)
+	if runtime.GOOS == "linux" {
+		for _, name := range []string{"Documentos", "Transferências", "Área de trabalho", "Música", "Vídeos"} {
+			addDir(filepath.Join(homeDir, name))
+		}
+	}
+
+	// Windows: drives extras
+	if runtime.GOOS == "windows" {
+		for _, drive := range []string{"D:\\", "E:\\"} {
+			addDir(drive)
+		}
+	}
+
+	// Home por último (mais amplo)
+	addDir(homeDir)
+
+	return dirs
+}
+
+func searchInCommonDirs(fileName string) []string {
+	dirs := getUserDirs()
 
 	var results []string
 	seen := map[string]bool{}
 
-	// Diretórios para pular em qualquer OS
 	skipDirs := map[string]bool{
 		"node_modules": true, "__pycache__": true, ".git": true,
 		"vendor": true, ".cache": true, ".npm": true, ".venv": true,
@@ -364,9 +458,6 @@ func searchInCommonDirs(fileName string) []string {
 	}
 
 	for _, dir := range dirs {
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			continue
-		}
 		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return filepath.SkipDir
