@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -122,16 +123,10 @@ func runTranscribe(cmd *cobra.Command, args []string) {
 	fmt.Println(subtitle)
 	fmt.Println()
 
-	// Verificar se arquivo existe
-	absAudioFile, err := filepath.Abs(audioFile)
-	if err != nil {
-		fmt.Println(ui.RenderError(fmt.Sprintf("Caminho inválido: %v", err)))
-		os.Exit(1)
-	}
-
-	if _, err := os.Stat(absAudioFile); os.IsNotExist(err) {
-		fmt.Println(ui.RenderError(fmt.Sprintf("Arquivo não encontrado: %s", audioFile)))
-		os.Exit(1)
+	// Resolver arquivo: caminho direto ou busca por nome
+	absAudioFile := resolveAudioFile(audioFile)
+	if absAudioFile == "" {
+		return
 	}
 
 	// Verificar dependências
@@ -158,6 +153,187 @@ func runTranscribe(cmd *cobra.Command, args []string) {
 
 	// Perguntar se quer salvar
 	askToSaveTranscription(transcribedText, absAudioFile)
+}
+
+// Extensões de áudio suportadas
+var audioExtensions = map[string]bool{
+	".mp3": true, ".wav": true, ".m4a": true, ".ogg": true,
+	".flac": true, ".wma": true, ".aac": true, ".opus": true,
+	".webm": true, ".mp4": true,
+}
+
+func resolveAudioFile(input string) string {
+	// 1. Caminho direto (absoluto ou relativo)
+	absPath, err := filepath.Abs(input)
+	if err == nil {
+		if _, err := os.Stat(absPath); err == nil {
+			return absPath
+		}
+	}
+
+	// 2. Buscar no computador
+	fileName := filepath.Base(input)
+	fmt.Println(lipgloss.NewStyle().
+		Foreground(ui.TextDim).
+		PaddingLeft(2).
+		Render(fmt.Sprintf("🔍 Buscando \"%s\" no computador...", fileName)))
+	fmt.Println()
+
+	results := searchAudioFile(fileName)
+
+	if len(results) == 0 {
+		fmt.Println(ui.RenderError(fmt.Sprintf("Arquivo não encontrado: %s", input)))
+		fmt.Println()
+		fmt.Println(lipgloss.NewStyle().Foreground(ui.Muted).PaddingLeft(2).Render(
+			"Dica: passe o caminho completo ou o nome exato do arquivo",
+		))
+		fmt.Println()
+		return ""
+	}
+
+	if len(results) == 1 {
+		fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(2).Render(
+			fmt.Sprintf("%s Encontrado: %s", ui.IconCheck, results[0]),
+		))
+		fmt.Println()
+		return results[0]
+	}
+
+	// Múltiplos resultados - deixar o usuário escolher
+	fmt.Println(lipgloss.NewStyle().
+		Foreground(ui.Primary).
+		Bold(true).
+		PaddingLeft(2).
+		Render(fmt.Sprintf("Encontrados %d arquivos:", len(results))))
+	fmt.Println()
+
+	for i, path := range results {
+		// Mostrar caminho abreviado
+		display := abbreviatePath(path)
+		num := lipgloss.NewStyle().Foreground(ui.Primary).Bold(true).Render(fmt.Sprintf("  [%d]", i+1))
+		filePath := lipgloss.NewStyle().Foreground(ui.Text).Render(fmt.Sprintf(" %s", display))
+		fmt.Println(num + filePath)
+	}
+
+	fmt.Println()
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.Primary).Bold(true).PaddingLeft(2).Render("Qual arquivo? "))
+	fmt.Print(lipgloss.NewStyle().Foreground(ui.TextDim).Render(fmt.Sprintf("[1-%d] ", len(results))))
+
+	reader := bufio.NewReader(os.Stdin)
+	choice, _ := reader.ReadString('\n')
+	choice = strings.TrimSpace(choice)
+
+	// Converter para índice
+	idx := 0
+	fmt.Sscanf(choice, "%d", &idx)
+	if idx < 1 || idx > len(results) {
+		fmt.Println()
+		fmt.Println(ui.RenderError("Opção inválida"))
+		return ""
+	}
+
+	selected := results[idx-1]
+	fmt.Println()
+	fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(2).Render(
+		fmt.Sprintf("%s Selecionado: %s", ui.IconCheck, abbreviatePath(selected)),
+	))
+	fmt.Println()
+	return selected
+}
+
+func searchAudioFile(fileName string) []string {
+	var results []string
+
+	if runtime.GOOS == "darwin" {
+		// macOS: usar Spotlight (mdfind) - busca instantânea
+		results = searchWithSpotlight(fileName)
+	} else {
+		// Linux: buscar em diretórios comuns
+		results = searchInCommonDirs(fileName)
+	}
+
+	// Limitar a 10 resultados
+	if len(results) > 10 {
+		results = results[:10]
+	}
+
+	return results
+}
+
+func searchWithSpotlight(fileName string) []string {
+	// mdfind busca pelo nome do arquivo no índice do Spotlight
+	cmd := exec.Command("mdfind", "-name", fileName)
+	output, err := cmd.Output()
+	if err != nil {
+		return searchInCommonDirs(fileName)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var results []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Filtrar só arquivos de áudio
+		ext := strings.ToLower(filepath.Ext(line))
+		if audioExtensions[ext] {
+			results = append(results, line)
+		}
+	}
+
+	return results
+}
+
+func searchInCommonDirs(fileName string) []string {
+	homeDir, _ := os.UserHomeDir()
+	dirs := []string{
+		filepath.Join(homeDir, "Downloads"),
+		filepath.Join(homeDir, "Desktop"),
+		filepath.Join(homeDir, "Documents"),
+		filepath.Join(homeDir, "Music"),
+		homeDir,
+	}
+
+	var results []string
+	seen := map[string]bool{}
+
+	for _, dir := range dirs {
+		filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return filepath.SkipDir
+			}
+			if info.IsDir() {
+				// Não entrar em diretórios ocultos ou node_modules
+				name := info.Name()
+				if strings.HasPrefix(name, ".") || name == "node_modules" || name == "__pycache__" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if strings.EqualFold(info.Name(), fileName) && !seen[path] {
+				ext := strings.ToLower(filepath.Ext(path))
+				if audioExtensions[ext] {
+					results = append(results, path)
+					seen[path] = true
+				}
+			}
+			if len(results) >= 10 {
+				return fmt.Errorf("limit")
+			}
+			return nil
+		})
+	}
+
+	return results
+}
+
+func abbreviatePath(path string) string {
+	homeDir, _ := os.UserHomeDir()
+	if strings.HasPrefix(path, homeDir) {
+		return "~" + path[len(homeDir):]
+	}
+	return path
 }
 
 func checkTranscribeDeps() bool {
