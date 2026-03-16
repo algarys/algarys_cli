@@ -606,9 +606,11 @@ func setupTranscribeEnv(projectDir string) bool {
 
 func runTranscription(projectDir, audioFile string) string {
 	// Info do arquivo
-	fileInfo, _ := os.Stat(audioFile)
 	fileName := filepath.Base(audioFile)
-	fileSizeMB := float64(fileInfo.Size()) / (1024 * 1024)
+	var fileSizeMB float64
+	if fileInfo, err := os.Stat(audioFile); err == nil {
+		fileSizeMB = float64(fileInfo.Size()) / (1024 * 1024)
+	}
 
 	langDisplay := "auto-detectar"
 	if transcribeLang != "" {
