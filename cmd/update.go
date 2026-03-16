@@ -89,9 +89,15 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Println(lipgloss.NewStyle().Foreground(ui.Muted).PaddingLeft(2).Render(
 			"Para atualizar manualmente, execute:",
 		))
-		fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
-			"curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash",
-		))
+		if runtime.GOOS == "windows" {
+			fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
+				"irm https://raw.githubusercontent.com/algarys/algarys_cli/main/install.ps1 | iex",
+			))
+		} else {
+			fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
+				"curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash",
+			))
+		}
 		fmt.Println()
 		return
 	}
@@ -109,9 +115,15 @@ func runUpdate(cmd *cobra.Command, args []string) {
 		fmt.Println(lipgloss.NewStyle().Foreground(ui.Muted).PaddingLeft(2).Render(
 			"Tente manualmente:",
 		))
-		fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
-			"curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash",
-		))
+		if runtime.GOOS == "windows" {
+			fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
+				"irm https://raw.githubusercontent.com/algarys/algarys_cli/main/install.ps1 | iex",
+			))
+		} else {
+			fmt.Println(lipgloss.NewStyle().Foreground(ui.Primary).PaddingLeft(4).Render(
+				"curl -fsSL https://raw.githubusercontent.com/algarys/algarys_cli/main/install.sh | bash",
+			))
+		}
 		return
 	}
 
@@ -175,10 +187,89 @@ func getLatestVersionHTTP() (*GitHubRelease, error) {
 
 func runInstallScript() error {
 	if runtime.GOOS == "windows" {
-		return fmt.Errorf("atualização automática não suportada no Windows")
+		return runInstallWindows()
+	}
+	return runInstallUnix()
+}
+
+func runInstallWindows() error {
+	goarch := runtime.GOARCH
+
+	// Criar diretório temporário
+	tmpDir, err := os.MkdirTemp("", "algarys-update-*")
+	if err != nil {
+		return fmt.Errorf("erro ao criar diretório temporário: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Baixar .zip via gh CLI ou HTTP
+	pattern := fmt.Sprintf("algarys_windows_%s.zip", goarch)
+	downloaded := false
+
+	if _, err := exec.LookPath("gh"); err == nil {
+		dlCmd := exec.Command("gh", "release", "download", "--repo",
+			fmt.Sprintf("%s/%s", repoOwner, repoName),
+			"--pattern", pattern, "--dir", tmpDir)
+		if err := dlCmd.Run(); err == nil {
+			downloaded = true
+		}
 	}
 
-	// Detectar OS e arquitetura
+	if !downloaded {
+		// Fallback: baixar via PowerShell (repo público)
+		release, err := getLatestVersion()
+		if err != nil {
+			return fmt.Errorf("erro ao buscar versão: %v", err)
+		}
+		url := fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
+			repoOwner, repoName, release.TagName, pattern)
+		zipPath := fmt.Sprintf("%s\\%s", tmpDir, pattern)
+		psCmd := exec.Command("powershell", "-NoProfile", "-Command",
+			fmt.Sprintf("Invoke-WebRequest -Uri '%s' -OutFile '%s' -UseBasicParsing", url, zipPath))
+		if err := psCmd.Run(); err != nil {
+			return fmt.Errorf("erro ao baixar release: %v", err)
+		}
+	}
+
+	// Extrair .zip via PowerShell
+	zipPath := fmt.Sprintf("%s\\%s", tmpDir, pattern)
+	psExtract := exec.Command("powershell", "-NoProfile", "-Command",
+		fmt.Sprintf("Expand-Archive -Path '%s' -DestinationPath '%s' -Force", zipPath, tmpDir))
+	if err := psExtract.Run(); err != nil {
+		return fmt.Errorf("erro ao extrair: %v", err)
+	}
+
+	// Diretório de instalação: %LOCALAPPDATA%\algarys
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		homeDir, _ := os.UserHomeDir()
+		localAppData = fmt.Sprintf("%s\\AppData\\Local", homeDir)
+	}
+	installDir := fmt.Sprintf("%s\\algarys", localAppData)
+	os.MkdirAll(installDir, 0755)
+
+	// Encontrar onde o binário atual está
+	currentBin, err := exec.LookPath("algarys.exe")
+	if err != nil {
+		// Se não encontrou no PATH, usar diretório padrão
+		currentBin = fmt.Sprintf("%s\\algarys.exe", installDir)
+	}
+
+	// Copiar novo binário
+	newBin := fmt.Sprintf("%s\\algarys.exe", tmpDir)
+	newData, err := os.ReadFile(newBin)
+	if err != nil {
+		return fmt.Errorf("erro ao ler novo binário: %v", err)
+	}
+
+	if err := os.WriteFile(currentBin, newData, 0755); err != nil {
+		return fmt.Errorf("erro ao instalar binário: %v", err)
+	}
+
+	return nil
+}
+
+func runInstallUnix() error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
@@ -191,14 +282,30 @@ func runInstallScript() error {
 
 	// Baixar release via gh CLI (funciona com repo privado)
 	pattern := fmt.Sprintf("algarys_%s_%s.tar.gz", goos, goarch)
-	dlCmd := exec.Command("gh", "release", "download", "--repo",
-		fmt.Sprintf("%s/%s", repoOwner, repoName),
-		"--pattern", pattern, "--dir", tmpDir)
-	dlCmd.Stdout = nil
-	dlCmd.Stderr = nil
+	downloaded := false
 
-	if err := dlCmd.Run(); err != nil {
-		return fmt.Errorf("erro ao baixar release: %v", err)
+	if _, err := exec.LookPath("gh"); err == nil {
+		dlCmd := exec.Command("gh", "release", "download", "--repo",
+			fmt.Sprintf("%s/%s", repoOwner, repoName),
+			"--pattern", pattern, "--dir", tmpDir)
+		if err := dlCmd.Run(); err == nil {
+			downloaded = true
+		}
+	}
+
+	if !downloaded {
+		// Fallback: baixar via curl (repo público)
+		release, err := getLatestVersion()
+		if err != nil {
+			return fmt.Errorf("erro ao buscar versão: %v", err)
+		}
+		url := fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
+			repoOwner, repoName, release.TagName, pattern)
+		tarPath := fmt.Sprintf("%s/%s", tmpDir, pattern)
+		curlCmd := exec.Command("curl", "-sL", url, "-o", tarPath)
+		if err := curlCmd.Run(); err != nil {
+			return fmt.Errorf("erro ao baixar release: %v", err)
+		}
 	}
 
 	// Extrair
@@ -219,17 +326,13 @@ func runInstallScript() error {
 	var mvCmd *exec.Cmd
 
 	// Verificar se precisa de sudo
-	installDir := fmt.Sprintf("%s", currentBin)
-	testFile, testErr := os.OpenFile(installDir, os.O_WRONLY, 0)
+	testFile, testErr := os.OpenFile(currentBin, os.O_WRONLY, 0)
 	if testErr != nil {
-		// Precisa de sudo
 		mvCmd = exec.Command("sudo", "cp", newBin, currentBin)
 	} else {
 		testFile.Close()
 		mvCmd = exec.Command("cp", newBin, currentBin)
 	}
-	mvCmd.Stdout = nil
-	mvCmd.Stderr = nil
 
 	if err := mvCmd.Run(); err != nil {
 		return fmt.Errorf("erro ao instalar binário: %v", err)
