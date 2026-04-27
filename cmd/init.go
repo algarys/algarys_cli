@@ -148,7 +148,7 @@ func runInit(cmd *cobra.Command, args []string) {
 		message string
 		action  func() bool
 	}{
-		{ui.IconFolder, "Criando estrutura SOLID + AI + Temporal", func() bool {
+		{ui.IconFolder, "Criando estrutura de diretórios", func() bool {
 			createProjectStructure(config.Name, moduleName)
 			return true
 		}},
@@ -258,42 +258,54 @@ func runInit(cmd *cobra.Command, args []string) {
 func createProjectStructure(projectName, moduleName string) {
 	basePath := filepath.Join(projectName, moduleName)
 
-	// Estrutura de pastas
 	dirs := []string{
-		// Domain - Entidades e regras de negócio
+		// Domain
 		filepath.Join(basePath, "domain", "entities"),
-		filepath.Join(basePath, "domain", "repositories"),
-		filepath.Join(basePath, "domain", "value_objects"),
 
-		// Application - Casos de uso e serviços
+		// Application
+		filepath.Join(basePath, "application", "dtos"),
+		filepath.Join(basePath, "application", "interfaces"),
 		filepath.Join(basePath, "application", "services"),
 		filepath.Join(basePath, "application", "use_cases"),
-		filepath.Join(basePath, "application", "dtos"),
+		filepath.Join(basePath, "application", "utils"),
 
-		// Infrastructure - Implementações concretas
-		filepath.Join(basePath, "infrastructure", "database"),
+		// Infrastructure
+		filepath.Join(basePath, "infrastructure", "cache"),
+		filepath.Join(basePath, "infrastructure", "database", "models"),
+		filepath.Join(basePath, "infrastructure", "database", "repositories"),
 		filepath.Join(basePath, "infrastructure", "external"),
-		filepath.Join(basePath, "infrastructure", "repositories"),
+		filepath.Join(basePath, "infrastructure", "messaging"),
+		filepath.Join(basePath, "infrastructure", "queue"),
+		filepath.Join(basePath, "infrastructure", "storage"),
 
-		// Interfaces - Controllers, API, CLI
-		filepath.Join(basePath, "interfaces", "api"),
-		filepath.Join(basePath, "interfaces", "cli"),
+		// Presentation
+		filepath.Join(basePath, "presentation", "http", "routes"),
+		filepath.Join(basePath, "presentation", "http", "schemas"),
+		filepath.Join(basePath, "presentation", "webhooks"),
 
-		// AI - Agentes de IA
-		filepath.Join(basePath, "ai", "agents"),
-		filepath.Join(basePath, "ai", "tools"),
-		filepath.Join(basePath, "ai", "prompts"),
-		filepath.Join(basePath, "ai", "models"),
-		filepath.Join(basePath, "ai", "notebooks"),
-		filepath.Join(basePath, "ai", "workflows"),
-		filepath.Join(basePath, "ai", "evaluations"),
-		filepath.Join(basePath, "ai", "data"),
-		filepath.Join(basePath, "ai", "configs"),
+		// IA
+		filepath.Join(basePath, "ia", "activities"),
+		filepath.Join(basePath, "ia", "adapters"),
+		filepath.Join(basePath, "ia", "agents", "tools", "catalog"),
+		filepath.Join(basePath, "ia", "agents", "tools", "conversational"),
+		filepath.Join(basePath, "ia", "agents", "tools", "prontuario_scheduler"),
+		filepath.Join(basePath, "ia", "agents", "tools", "_shared"),
 
-		// Temporal - Orquestração de workflows
-		filepath.Join(basePath, "temporal", "activities"),
-		filepath.Join(basePath, "temporal", "workflows"),
-		filepath.Join(basePath, "temporal", "worker"),
+		// Models
+		filepath.Join(basePath, "models", "prompts"),
+		filepath.Join(basePath, "models", "services"),
+		filepath.Join(basePath, "models", "utils"),
+		filepath.Join(basePath, "models", "workers"),
+		filepath.Join(basePath, "models", "workflows"),
+
+		// Core
+		filepath.Join(basePath, "core"),
+
+		// Interfaces (workers de mídia e jobs periódicos)
+		filepath.Join(basePath, "interfaces", "workers"),
+
+		// Shared
+		filepath.Join(basePath, "shared", "contracts"),
 
 		// Tests
 		filepath.Join(projectName, "tests", "unit"),
@@ -304,50 +316,68 @@ func createProjectStructure(projectName, moduleName string) {
 		os.MkdirAll(dir, 0755)
 	}
 
-	// Criar __init__.py em todos os pacotes Python
 	initFiles := []string{
-		// Root
 		filepath.Join(basePath, "__init__.py"),
 		filepath.Join(basePath, "__main__.py"),
 
 		// Domain
 		filepath.Join(basePath, "domain", "__init__.py"),
 		filepath.Join(basePath, "domain", "entities", "__init__.py"),
-		filepath.Join(basePath, "domain", "repositories", "__init__.py"),
-		filepath.Join(basePath, "domain", "value_objects", "__init__.py"),
 
 		// Application
 		filepath.Join(basePath, "application", "__init__.py"),
+		filepath.Join(basePath, "application", "dtos", "__init__.py"),
+		filepath.Join(basePath, "application", "interfaces", "__init__.py"),
 		filepath.Join(basePath, "application", "services", "__init__.py"),
 		filepath.Join(basePath, "application", "use_cases", "__init__.py"),
-		filepath.Join(basePath, "application", "dtos", "__init__.py"),
+		filepath.Join(basePath, "application", "utils", "__init__.py"),
 
 		// Infrastructure
 		filepath.Join(basePath, "infrastructure", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "cache", "__init__.py"),
 		filepath.Join(basePath, "infrastructure", "database", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "database", "models", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "database", "repositories", "__init__.py"),
 		filepath.Join(basePath, "infrastructure", "external", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "repositories", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "messaging", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "queue", "__init__.py"),
+		filepath.Join(basePath, "infrastructure", "storage", "__init__.py"),
+
+		// Presentation
+		filepath.Join(basePath, "presentation", "__init__.py"),
+		filepath.Join(basePath, "presentation", "http", "__init__.py"),
+		filepath.Join(basePath, "presentation", "http", "routes", "__init__.py"),
+		filepath.Join(basePath, "presentation", "http", "schemas", "__init__.py"),
+		filepath.Join(basePath, "presentation", "webhooks", "__init__.py"),
+
+		// IA
+		filepath.Join(basePath, "ia", "__init__.py"),
+		filepath.Join(basePath, "ia", "activities", "__init__.py"),
+		filepath.Join(basePath, "ia", "adapters", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "tools", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "tools", "catalog", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "tools", "conversational", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "tools", "prontuario_scheduler", "__init__.py"),
+		filepath.Join(basePath, "ia", "agents", "tools", "_shared", "__init__.py"),
+
+		// Models
+		filepath.Join(basePath, "models", "__init__.py"),
+		filepath.Join(basePath, "models", "services", "__init__.py"),
+		filepath.Join(basePath, "models", "utils", "__init__.py"),
+		filepath.Join(basePath, "models", "workers", "__init__.py"),
+		filepath.Join(basePath, "models", "workflows", "__init__.py"),
+
+		// Core
+		filepath.Join(basePath, "core", "__init__.py"),
 
 		// Interfaces
 		filepath.Join(basePath, "interfaces", "__init__.py"),
-		filepath.Join(basePath, "interfaces", "api", "__init__.py"),
-		filepath.Join(basePath, "interfaces", "cli", "__init__.py"),
+		filepath.Join(basePath, "interfaces", "workers", "__init__.py"),
 
-		// AI
-		filepath.Join(basePath, "ai", "__init__.py"),
-		filepath.Join(basePath, "ai", "agents", "__init__.py"),
-		filepath.Join(basePath, "ai", "tools", "__init__.py"),
-		filepath.Join(basePath, "ai", "prompts", "__init__.py"),
-		filepath.Join(basePath, "ai", "models", "__init__.py"),
-		filepath.Join(basePath, "ai", "workflows", "__init__.py"),
-		filepath.Join(basePath, "ai", "evaluations", "__init__.py"),
-		filepath.Join(basePath, "ai", "configs", "__init__.py"),
-
-		// Temporal
-		filepath.Join(basePath, "temporal", "__init__.py"),
-		filepath.Join(basePath, "temporal", "activities", "__init__.py"),
-		filepath.Join(basePath, "temporal", "workflows", "__init__.py"),
-		filepath.Join(basePath, "temporal", "worker", "__init__.py"),
+		// Shared
+		filepath.Join(basePath, "shared", "__init__.py"),
+		filepath.Join(basePath, "shared", "contracts", "__init__.py"),
 
 		// Tests
 		filepath.Join(projectName, "tests", "__init__.py"),
@@ -359,7 +389,6 @@ func createProjectStructure(projectName, moduleName string) {
 		os.WriteFile(f, []byte(""), 0644)
 	}
 
-	// Criar __main__.py com conteúdo
 	mainContent := fmt.Sprintf(`"""Ponto de entrada do módulo %s."""
 
 
@@ -373,7 +402,6 @@ if __name__ == "__main__":
 `, moduleName, moduleName)
 	os.WriteFile(filepath.Join(basePath, "__main__.py"), []byte(mainContent), 0644)
 
-	// Criar exemplo de entity
 	entityExample := `"""Entidade base do domínio."""
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -390,8 +418,7 @@ class BaseEntity:
 `
 	os.WriteFile(filepath.Join(basePath, "domain", "entities", "base.py"), []byte(entityExample), 0644)
 
-	// Criar exemplo de repository interface
-	repoExample := `"""Interfaces de repositório (abstrações)."""
+	repoInterfaceExample := `"""Interfaces de repositório (contratos da camada de aplicação)."""
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 from uuid import UUID
@@ -403,23 +430,39 @@ class Repository(ABC, Generic[T]):
     """Interface base para repositórios."""
 
     @abstractmethod
-    async def get_by_id(self, id: UUID) -> T | None:
-        """Busca entidade por ID."""
-        ...
+    async def get_by_id(self, id: UUID) -> T | None: ...
 
     @abstractmethod
-    async def save(self, entity: T) -> T:
-        """Salva ou atualiza entidade."""
-        ...
+    async def save(self, entity: T) -> T: ...
 
     @abstractmethod
-    async def delete(self, id: UUID) -> bool:
-        """Remove entidade por ID."""
-        ...
+    async def delete(self, id: UUID) -> bool: ...
 `
-	os.WriteFile(filepath.Join(basePath, "domain", "repositories", "base.py"), []byte(repoExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "application", "interfaces", "repository.py"), []byte(repoInterfaceExample), 0644)
 
-	// Criar exemplo de agent base
+	coreExample := `"""Exceções e configurações globais."""
+
+
+class AppException(Exception):
+    """Exceção base da aplicação."""
+
+    def __init__(self, message: str, code: str = "INTERNAL_ERROR"):
+        self.message = message
+        self.code = code
+        super().__init__(message)
+
+
+class NotFoundError(AppException):
+    def __init__(self, resource: str, id: str):
+        super().__init__(f"{resource} '{id}' não encontrado.", code="NOT_FOUND")
+
+
+class ValidationError(AppException):
+    def __init__(self, message: str):
+        super().__init__(message, code="VALIDATION_ERROR")
+`
+	os.WriteFile(filepath.Join(basePath, "core", "exceptions.py"), []byte(coreExample), 0644)
+
 	agentExample := `"""Base para agentes de IA."""
 from abc import ABC, abstractmethod
 from typing import Any
@@ -428,23 +471,18 @@ from typing import Any
 class BaseAgent(ABC):
     """Classe base para agentes de IA."""
 
-    def __init__(self, name: str, model: str = "gpt-4"):
+    def __init__(self, name: str, model: str = "gpt-4o"):
         self.name = name
         self.model = model
 
     @abstractmethod
-    async def run(self, input: str, **kwargs) -> Any:
-        """Executa o agente com o input fornecido."""
-        ...
+    async def run(self, input: str, **kwargs) -> Any: ...
 
     @abstractmethod
-    def get_tools(self) -> list:
-        """Retorna as ferramentas disponíveis para o agente."""
-        ...
+    def get_tools(self) -> list: ...
 `
-	os.WriteFile(filepath.Join(basePath, "ai", "agents", "base.py"), []byte(agentExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "ia", "agents", "base.py"), []byte(agentExample), 0644)
 
-	// Criar exemplo de tool base
 	toolExample := `"""Base para ferramentas de agentes."""
 from abc import ABC, abstractmethod
 from typing import Any
@@ -457,137 +495,37 @@ class BaseTool(ABC):
     description: str
 
     @abstractmethod
-    async def execute(self, **kwargs) -> Any:
-        """Executa a ferramenta."""
-        ...
+    async def execute(self, **kwargs) -> Any: ...
+
+    @abstractmethod
+    def get_parameters(self) -> dict: ...
 
     def to_openai_function(self) -> dict:
-        """Converte para formato de função OpenAI."""
         return {
             "name": self.name,
             "description": self.description,
             "parameters": self.get_parameters(),
         }
-
-    @abstractmethod
-    def get_parameters(self) -> dict:
-        """Retorna o schema de parâmetros da ferramenta."""
-        ...
 `
-	os.WriteFile(filepath.Join(basePath, "ai", "tools", "base.py"), []byte(toolExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "ia", "agents", "tools", "_shared", "base.py"), []byte(toolExample), 0644)
 
-	// Criar exemplo de prompt template
-	promptExample := `"""Templates de prompts."""
+	contractExample := `"""Contratos compartilhados entre módulos."""
+from typing import Protocol, runtime_checkable
 
-SYSTEM_PROMPT = """Você é um assistente útil da Algarys.
-Responda de forma clara e objetiva.
-"""
 
-AGENT_PROMPT = """Você é um agente especializado em {domain}.
+@runtime_checkable
+class Runnable(Protocol):
+    """Protocolo para objetos executáveis."""
 
-Contexto:
-{context}
-
-Ferramentas disponíveis:
-{tools}
-
-Tarefa: {task}
-"""
+    async def run(self, *args, **kwargs): ...
 `
-	os.WriteFile(filepath.Join(basePath, "ai", "prompts", "templates.py"), []byte(promptExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "shared", "contracts", "base.py"), []byte(contractExample), 0644)
 
-	// Criar exemplo de Temporal activity
-	activityExample := `"""Activities do Temporal."""
-from temporalio import activity
-
-
-@activity.defn
-async def process_data(data: dict) -> dict:
-    """Activity para processar dados."""
-    # Implementar lógica de processamento
-    return {"status": "processed", "data": data}
-
-
-@activity.defn
-async def call_ai_agent(prompt: str, agent_name: str) -> str:
-    """Activity para chamar um agente de IA."""
-    # Implementar chamada ao agente
-    return f"Response from {agent_name}"
-`
-	os.WriteFile(filepath.Join(basePath, "temporal", "activities", "ai_activities.py"), []byte(activityExample), 0644)
-
-	// Criar exemplo de Temporal workflow
-	workflowExample := `"""Workflows do Temporal."""
-from datetime import timedelta
-from temporalio import workflow
-
-with workflow.unsafe.imports_passed_through():
-    from %s.temporal.activities.ai_activities import process_data, call_ai_agent
-
-
-@workflow.defn
-class AIProcessingWorkflow:
-    """Workflow para processamento com IA."""
-
-    @workflow.run
-    async def run(self, input_data: dict) -> dict:
-        """Executa o workflow."""
-        # Processar dados
-        processed = await workflow.execute_activity(
-            process_data,
-            input_data,
-            start_to_close_timeout=timedelta(minutes=5),
-        )
-
-        # Chamar agente
-        response = await workflow.execute_activity(
-            call_ai_agent,
-            args=["Analyze this data", "analyst"],
-            start_to_close_timeout=timedelta(minutes=10),
-        )
-
-        return {"processed": processed, "ai_response": response}
-`
-	os.WriteFile(filepath.Join(basePath, "temporal", "workflows", "ai_workflow.py"), []byte(fmt.Sprintf(workflowExample, moduleName)), 0644)
-
-	// Criar exemplo de Temporal worker
-	workerExample := `"""Worker do Temporal."""
-import asyncio
-from temporalio.client import Client
-from temporalio.worker import Worker
-
-from %s.temporal.activities.ai_activities import process_data, call_ai_agent
-from %s.temporal.workflows.ai_workflow import AIProcessingWorkflow
-
-
-async def main():
-    """Inicia o worker do Temporal."""
-    client = await Client.connect("localhost:7233")
-
-    worker = Worker(
-        client,
-        task_queue="ai-processing-queue",
-        workflows=[AIProcessingWorkflow],
-        activities=[process_data, call_ai_agent],
-    )
-
-    print("Worker iniciado. Aguardando tarefas...")
-    await worker.run()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-`
-	os.WriteFile(filepath.Join(basePath, "temporal", "worker", "main.py"), []byte(fmt.Sprintf(workerExample, moduleName, moduleName)), 0644)
-
-	// Criar .gitkeep em pastas que podem ficar vazias
+	// .gitkeep em pastas de artefatos (prompts YAML, etc.)
 	gitkeepDirs := []string{
-		filepath.Join(basePath, "ai", "notebooks"),
-		filepath.Join(basePath, "ai", "data"),
-		filepath.Join(basePath, "ai", "configs"),
-		filepath.Join(basePath, "ai", "evaluations"),
+		filepath.Join(basePath, "models", "prompts"),
+		filepath.Join(basePath, "infrastructure", "storage"),
 	}
-
 	for _, dir := range gitkeepDirs {
 		os.WriteFile(filepath.Join(dir, ".gitkeep"), []byte(""), 0644)
 	}
@@ -756,35 +694,48 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/db
 
 `+"```"+`
 %s/
-├── domain/              # Camada de domínio
-│   ├── entities/        # Entidades e agregados
-│   ├── repositories/    # Interfaces de repositório
-│   └── value_objects/   # Objetos de valor
-├── application/         # Camada de aplicação
-│   ├── services/        # Serviços de aplicação
-│   ├── use_cases/       # Casos de uso
-│   └── dtos/            # Data Transfer Objects
-├── infrastructure/      # Camada de infraestrutura
-│   ├── database/        # Configuração de banco
-│   ├── external/        # Integrações externas
-│   └── repositories/    # Implementações de repositório
-├── interfaces/          # Camada de interface
-│   ├── api/             # Controllers REST
-│   └── cli/             # Comandos CLI
-├── ai/                  # Módulo de IA
-│   ├── agents/          # Agentes de IA
-│   ├── tools/           # Ferramentas para agentes
-│   ├── prompts/         # Templates de prompts
-│   ├── models/          # Modelos e schemas
-│   ├── notebooks/       # Jupyter notebooks
-│   ├── workflows/       # Pipelines de agentes
-│   ├── evaluations/     # Métricas e testes
-│   ├── data/            # Datasets
-│   └── configs/         # Configurações
-└── temporal/            # Orquestração Temporal
-    ├── activities/      # Activities
-    ├── workflows/       # Workflows
-    └── worker/          # Worker
+├── domain/                        # Entidades de domínio
+│   └── entities/
+├── application/                   # Casos de uso e contratos
+│   ├── dtos/
+│   ├── interfaces/
+│   ├── services/
+│   ├── use_cases/
+│   └── utils/
+├── infrastructure/                # Implementações concretas
+│   ├── cache/
+│   ├── database/
+│   │   ├── models/
+│   │   └── repositories/
+│   ├── external/                  # Clientes de APIs externas (subpastas por contexto)
+│   ├── messaging/
+│   ├── queue/
+│   └── storage/
+├── presentation/                  # Camada HTTP / webhooks
+│   ├── http/
+│   │   ├── routes/                # Rotas agrupadas por contexto
+│   │   └── schemas/
+│   └── webhooks/
+├── ia/                            # Módulo de IA e agentes
+│   ├── activities/
+│   ├── adapters/
+│   └── agents/
+│       └── tools/
+│           ├── catalog/
+│           ├── conversational/
+│           ├── prontuario_scheduler/
+│           └── _shared/
+├── models/                        # Modelos, prompts e workers
+│   ├── prompts/
+│   ├── services/
+│   ├── utils/
+│   ├── workers/
+│   └── workflows/
+├── core/                          # Exceções e configs globais
+├── interfaces/
+│   └── workers/                   # Workers de mídia e jobs
+└── shared/
+    └── contracts/
 `+"```"+`
 
 ## Desenvolvimento
@@ -793,34 +744,17 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/db
 
 - Python %s+
 - [UV](https://docs.astral.sh/uv/)
-- [Temporal](https://temporal.io/) (para workflows)
 
 ### Instalação
 
 `+"```bash"+`
-# Instalar todas as dependências
 uv sync --all-extras
-
-# Ou apenas o necessário
-uv sync                    # básico
-uv sync --extra ai         # + libs de IA
-uv sync --extra temporal   # + Temporal
 `+"```"+`
 
 ### Executar
 
 `+"```bash"+`
 uv run python -m %s
-`+"```"+`
-
-### Temporal Worker
-
-`+"```bash"+`
-# Iniciar Temporal server (dev)
-temporal server start-dev
-
-# Iniciar worker
-uv run python -m %s.temporal.worker.main
 `+"```"+`
 
 ### Testes
@@ -841,7 +775,7 @@ uv run mypy %s/
 ---
 
 Criado com [Algarys CLI](https://github.com/algarys/algarys_cli)
-`, projectName, description, moduleName, pythonVersion, moduleName, moduleName, moduleName)
+`, projectName, description, moduleName, pythonVersion, moduleName, moduleName)
 
 	os.WriteFile(filepath.Join(projectName, "README.md"), []byte(readme), 0644)
 }
