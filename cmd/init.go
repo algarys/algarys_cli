@@ -243,7 +243,7 @@ func runInit(cmd *cobra.Command, args []string) {
 
 	fmt.Println(cmdStyle.Render(fmt.Sprintf("cd %s", config.Name)))
 	fmt.Println(cmdStyle.Render("uv sync --all-extras"))
-	fmt.Println(cmdStyle.Render(fmt.Sprintf("uv run python -m %s", moduleName)))
+	fmt.Println(cmdStyle.Render("uv run python -m app"))
 	fmt.Println()
 
 	// Dica
@@ -256,58 +256,47 @@ func runInit(cmd *cobra.Command, args []string) {
 }
 
 func createProjectStructure(projectName, moduleName string) {
-	basePath := filepath.Join(projectName, moduleName)
+	// Raiz do pacote Python é sempre "app/"
+	basePath := filepath.Join(projectName, "app")
 
 	dirs := []string{
-		// Domain
-		filepath.Join(basePath, "domain", "entities"),
+		// api/ — módulo principal da API (SOLID)
+		filepath.Join(basePath, "api", "application", "dtos"),
+		filepath.Join(basePath, "api", "application", "interfaces"),
+		filepath.Join(basePath, "api", "application", "services"),
+		filepath.Join(basePath, "api", "application", "use_cases"),
+		filepath.Join(basePath, "api", "application", "utils"),
+		filepath.Join(basePath, "api", "domain", "entities"),
+		filepath.Join(basePath, "api", "infrastructure", "cache"),
+		filepath.Join(basePath, "api", "infrastructure", "database", "models"),
+		filepath.Join(basePath, "api", "infrastructure", "database", "repositories"),
+		filepath.Join(basePath, "api", "infrastructure", "external"),
+		filepath.Join(basePath, "api", "infrastructure", "messaging"),
+		filepath.Join(basePath, "api", "infrastructure", "queue"),
+		filepath.Join(basePath, "api", "infrastructure", "storage"),
+		filepath.Join(basePath, "api", "presentation", "http", "routes"),
+		filepath.Join(basePath, "api", "presentation", "http", "schemas"),
+		filepath.Join(basePath, "api", "presentation", "webhooks"),
 
-		// Application
-		filepath.Join(basePath, "application", "dtos"),
-		filepath.Join(basePath, "application", "interfaces"),
-		filepath.Join(basePath, "application", "services"),
-		filepath.Join(basePath, "application", "use_cases"),
-		filepath.Join(basePath, "application", "utils"),
-
-		// Infrastructure
-		filepath.Join(basePath, "infrastructure", "cache"),
-		filepath.Join(basePath, "infrastructure", "database", "models"),
-		filepath.Join(basePath, "infrastructure", "database", "repositories"),
-		filepath.Join(basePath, "infrastructure", "external"),
-		filepath.Join(basePath, "infrastructure", "messaging"),
-		filepath.Join(basePath, "infrastructure", "queue"),
-		filepath.Join(basePath, "infrastructure", "storage"),
-
-		// Presentation
-		filepath.Join(basePath, "presentation", "http", "routes"),
-		filepath.Join(basePath, "presentation", "http", "schemas"),
-		filepath.Join(basePath, "presentation", "webhooks"),
-
-		// IA
+		// ia/ — módulo de IA e agentes
 		filepath.Join(basePath, "ia", "activities"),
 		filepath.Join(basePath, "ia", "adapters"),
 		filepath.Join(basePath, "ia", "agents", "tools", "catalog"),
 		filepath.Join(basePath, "ia", "agents", "tools", "conversational"),
-		filepath.Join(basePath, "ia", "agents", "tools", "prontuario_scheduler"),
 		filepath.Join(basePath, "ia", "agents", "tools", "_shared"),
+		filepath.Join(basePath, "ia", "models"),
+		filepath.Join(basePath, "ia", "prompts"),
+		filepath.Join(basePath, "ia", "services"),
+		filepath.Join(basePath, "ia", "utils"),
+		filepath.Join(basePath, "ia", "workers"),
+		filepath.Join(basePath, "ia", "workflows"),
 
-		// Models
-		filepath.Join(basePath, "models", "prompts"),
-		filepath.Join(basePath, "models", "services"),
-		filepath.Join(basePath, "models", "utils"),
-		filepath.Join(basePath, "models", "workers"),
-		filepath.Join(basePath, "models", "workflows"),
-
-		// Core
+		// core/, interfaces/, shared/
 		filepath.Join(basePath, "core"),
-
-		// Interfaces (workers de mídia e jobs periódicos)
 		filepath.Join(basePath, "interfaces", "workers"),
-
-		// Shared
 		filepath.Join(basePath, "shared", "contracts"),
 
-		// Tests
+		// tests/
 		filepath.Join(projectName, "tests", "unit"),
 		filepath.Join(projectName, "tests", "integration"),
 	}
@@ -320,37 +309,32 @@ func createProjectStructure(projectName, moduleName string) {
 		filepath.Join(basePath, "__init__.py"),
 		filepath.Join(basePath, "__main__.py"),
 
-		// Domain
-		filepath.Join(basePath, "domain", "__init__.py"),
-		filepath.Join(basePath, "domain", "entities", "__init__.py"),
+		// api/
+		filepath.Join(basePath, "api", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "dtos", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "interfaces", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "services", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "use_cases", "__init__.py"),
+		filepath.Join(basePath, "api", "application", "utils", "__init__.py"),
+		filepath.Join(basePath, "api", "domain", "__init__.py"),
+		filepath.Join(basePath, "api", "domain", "entities", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "cache", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "database", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "database", "models", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "database", "repositories", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "external", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "messaging", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "queue", "__init__.py"),
+		filepath.Join(basePath, "api", "infrastructure", "storage", "__init__.py"),
+		filepath.Join(basePath, "api", "presentation", "__init__.py"),
+		filepath.Join(basePath, "api", "presentation", "http", "__init__.py"),
+		filepath.Join(basePath, "api", "presentation", "http", "routes", "__init__.py"),
+		filepath.Join(basePath, "api", "presentation", "http", "schemas", "__init__.py"),
+		filepath.Join(basePath, "api", "presentation", "webhooks", "__init__.py"),
 
-		// Application
-		filepath.Join(basePath, "application", "__init__.py"),
-		filepath.Join(basePath, "application", "dtos", "__init__.py"),
-		filepath.Join(basePath, "application", "interfaces", "__init__.py"),
-		filepath.Join(basePath, "application", "services", "__init__.py"),
-		filepath.Join(basePath, "application", "use_cases", "__init__.py"),
-		filepath.Join(basePath, "application", "utils", "__init__.py"),
-
-		// Infrastructure
-		filepath.Join(basePath, "infrastructure", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "cache", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "database", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "database", "models", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "database", "repositories", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "external", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "messaging", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "queue", "__init__.py"),
-		filepath.Join(basePath, "infrastructure", "storage", "__init__.py"),
-
-		// Presentation
-		filepath.Join(basePath, "presentation", "__init__.py"),
-		filepath.Join(basePath, "presentation", "http", "__init__.py"),
-		filepath.Join(basePath, "presentation", "http", "routes", "__init__.py"),
-		filepath.Join(basePath, "presentation", "http", "schemas", "__init__.py"),
-		filepath.Join(basePath, "presentation", "webhooks", "__init__.py"),
-
-		// IA
+		// ia/
 		filepath.Join(basePath, "ia", "__init__.py"),
 		filepath.Join(basePath, "ia", "activities", "__init__.py"),
 		filepath.Join(basePath, "ia", "adapters", "__init__.py"),
@@ -358,28 +342,22 @@ func createProjectStructure(projectName, moduleName string) {
 		filepath.Join(basePath, "ia", "agents", "tools", "__init__.py"),
 		filepath.Join(basePath, "ia", "agents", "tools", "catalog", "__init__.py"),
 		filepath.Join(basePath, "ia", "agents", "tools", "conversational", "__init__.py"),
-		filepath.Join(basePath, "ia", "agents", "tools", "prontuario_scheduler", "__init__.py"),
 		filepath.Join(basePath, "ia", "agents", "tools", "_shared", "__init__.py"),
+		filepath.Join(basePath, "ia", "models", "__init__.py"),
+		filepath.Join(basePath, "ia", "prompts", "__init__.py"),
+		filepath.Join(basePath, "ia", "services", "__init__.py"),
+		filepath.Join(basePath, "ia", "utils", "__init__.py"),
+		filepath.Join(basePath, "ia", "workers", "__init__.py"),
+		filepath.Join(basePath, "ia", "workflows", "__init__.py"),
 
-		// Models
-		filepath.Join(basePath, "models", "__init__.py"),
-		filepath.Join(basePath, "models", "services", "__init__.py"),
-		filepath.Join(basePath, "models", "utils", "__init__.py"),
-		filepath.Join(basePath, "models", "workers", "__init__.py"),
-		filepath.Join(basePath, "models", "workflows", "__init__.py"),
-
-		// Core
+		// core/, interfaces/, shared/
 		filepath.Join(basePath, "core", "__init__.py"),
-
-		// Interfaces
 		filepath.Join(basePath, "interfaces", "__init__.py"),
 		filepath.Join(basePath, "interfaces", "workers", "__init__.py"),
-
-		// Shared
 		filepath.Join(basePath, "shared", "__init__.py"),
 		filepath.Join(basePath, "shared", "contracts", "__init__.py"),
 
-		// Tests
+		// tests/
 		filepath.Join(projectName, "tests", "__init__.py"),
 		filepath.Join(projectName, "tests", "unit", "__init__.py"),
 		filepath.Join(projectName, "tests", "integration", "__init__.py"),
@@ -389,11 +367,10 @@ func createProjectStructure(projectName, moduleName string) {
 		os.WriteFile(f, []byte(""), 0644)
 	}
 
-	mainContent := fmt.Sprintf(`"""Ponto de entrada do módulo %s."""
+	mainContent := fmt.Sprintf(`"""Ponto de entrada de %s."""
 
 
 def main() -> None:
-    """Função principal."""
     print("Hello from %s!")
 
 
@@ -410,15 +387,13 @@ from uuid import UUID, uuid4
 
 @dataclass
 class BaseEntity:
-    """Classe base para entidades."""
-
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 `
-	os.WriteFile(filepath.Join(basePath, "domain", "entities", "base.py"), []byte(entityExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "api", "domain", "entities", "base.py"), []byte(entityExample), 0644)
 
-	repoInterfaceExample := `"""Interfaces de repositório (contratos da camada de aplicação)."""
+	repoInterfaceExample := `"""Interfaces de repositório."""
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 from uuid import UUID
@@ -427,8 +402,6 @@ T = TypeVar("T")
 
 
 class Repository(ABC, Generic[T]):
-    """Interface base para repositórios."""
-
     @abstractmethod
     async def get_by_id(self, id: UUID) -> T | None: ...
 
@@ -438,14 +411,12 @@ class Repository(ABC, Generic[T]):
     @abstractmethod
     async def delete(self, id: UUID) -> bool: ...
 `
-	os.WriteFile(filepath.Join(basePath, "application", "interfaces", "repository.py"), []byte(repoInterfaceExample), 0644)
+	os.WriteFile(filepath.Join(basePath, "api", "application", "interfaces", "repository.py"), []byte(repoInterfaceExample), 0644)
 
 	coreExample := `"""Exceções e configurações globais."""
 
 
 class AppException(Exception):
-    """Exceção base da aplicação."""
-
     def __init__(self, message: str, code: str = "INTERNAL_ERROR"):
         self.message = message
         self.code = code
@@ -469,8 +440,6 @@ from typing import Any
 
 
 class BaseAgent(ABC):
-    """Classe base para agentes de IA."""
-
     def __init__(self, name: str, model: str = "gpt-4o"):
         self.name = name
         self.model = model
@@ -489,8 +458,6 @@ from typing import Any
 
 
 class BaseTool(ABC):
-    """Classe base para ferramentas de agentes."""
-
     name: str
     description: str
 
@@ -509,24 +476,21 @@ class BaseTool(ABC):
 `
 	os.WriteFile(filepath.Join(basePath, "ia", "agents", "tools", "_shared", "base.py"), []byte(toolExample), 0644)
 
-	contractExample := `"""Contratos compartilhados entre módulos."""
+	contractExample := `"""Contratos de mensagens entre serviços."""
 from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
 class Runnable(Protocol):
-    """Protocolo para objetos executáveis."""
-
     async def run(self, *args, **kwargs): ...
 `
 	os.WriteFile(filepath.Join(basePath, "shared", "contracts", "base.py"), []byte(contractExample), 0644)
 
-	// .gitkeep em pastas de artefatos (prompts YAML, etc.)
-	gitkeepDirs := []string{
-		filepath.Join(basePath, "models", "prompts"),
-		filepath.Join(basePath, "infrastructure", "storage"),
-	}
-	for _, dir := range gitkeepDirs {
+	// .gitkeep em pastas de artefatos não-Python
+	for _, dir := range []string{
+		filepath.Join(basePath, "ia", "prompts"),
+		filepath.Join(basePath, "api", "infrastructure", "storage"),
+	} {
 		os.WriteFile(filepath.Join(dir, ".gitkeep"), []byte(""), 0644)
 	}
 }
@@ -570,12 +534,12 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["%s"]
+packages = ["app"]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 88
-src = ["%s", "tests"]
+src = ["app", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
@@ -590,7 +554,7 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
-`, projectName, description, pythonVersion, projectName, moduleName, moduleName, pythonVersion)
+`, projectName, description, pythonVersion, projectName, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "pyproject.toml"), []byte(pyproject), 0644)
 
@@ -693,39 +657,39 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/db
 ## Estrutura do Projeto
 
 `+"```"+`
-%s/
-├── domain/                        # Entidades de domínio
-│   └── entities/
-├── application/                   # Casos de uso e contratos
-│   ├── dtos/
-│   ├── interfaces/
-│   ├── services/
-│   ├── use_cases/
-│   └── utils/
-├── infrastructure/                # Implementações concretas
-│   ├── cache/
-│   ├── database/
-│   │   ├── models/
-│   │   └── repositories/
-│   ├── external/                  # Clientes de APIs externas (subpastas por contexto)
-│   ├── messaging/
-│   ├── queue/
-│   └── storage/
-├── presentation/                  # Camada HTTP / webhooks
-│   ├── http/
-│   │   ├── routes/                # Rotas agrupadas por contexto
-│   │   └── schemas/
-│   └── webhooks/
+app/
+├── api/                           # Módulo principal da API
+│   ├── application/
+│   │   ├── dtos/
+│   │   ├── interfaces/
+│   │   ├── services/
+│   │   ├── use_cases/             # Subpastas por contexto (ex: medware/)
+│   │   └── utils/
+│   ├── domain/
+│   │   └── entities/
+│   ├── infrastructure/
+│   │   ├── cache/
+│   │   ├── database/
+│   │   │   ├── models/
+│   │   │   └── repositories/
+│   │   ├── external/              # Clientes de APIs externas (subpastas por contexto)
+│   │   ├── messaging/
+│   │   ├── queue/
+│   │   └── storage/
+│   └── presentation/
+│       ├── http/
+│       │   ├── routes/            # Rotas agrupadas por contexto
+│       │   └── schemas/
+│       └── webhooks/
 ├── ia/                            # Módulo de IA e agentes
 │   ├── activities/
 │   ├── adapters/
-│   └── agents/
-│       └── tools/
-│           ├── catalog/
-│           ├── conversational/
-│           ├── prontuario_scheduler/
-│           └── _shared/
-├── models/                        # Modelos, prompts e workers
+│   ├── agents/
+│   │   └── tools/
+│   │       ├── catalog/
+│   │       ├── conversational/
+│   │       └── _shared/
+│   ├── models/
 │   ├── prompts/
 │   ├── services/
 │   ├── utils/
@@ -733,9 +697,9 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/db
 │   └── workflows/
 ├── core/                          # Exceções e configs globais
 ├── interfaces/
-│   └── workers/                   # Workers de mídia e jobs
+│   └── workers/                   # Workers de mídia e jobs periódicos
 └── shared/
-    └── contracts/
+    └── contracts/                 # Contratos de mensagens entre serviços
 `+"```"+`
 
 ## Desenvolvimento
@@ -754,7 +718,7 @@ uv sync --all-extras
 ### Executar
 
 `+"```bash"+`
-uv run python -m %s
+uv run python -m app
 `+"```"+`
 
 ### Testes
@@ -769,13 +733,13 @@ uv run pytest --cov
 `+"```bash"+`
 uv run ruff check .
 uv run ruff format .
-uv run mypy %s/
+uv run mypy app/
 `+"```"+`
 
 ---
 
 Criado com [Algarys CLI](https://github.com/algarys/algarys_cli)
-`, projectName, description, moduleName, pythonVersion, moduleName, moduleName)
+`, projectName, description, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "README.md"), []byte(readme), 0644)
 }
