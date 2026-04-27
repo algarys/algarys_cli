@@ -368,15 +368,16 @@ func createProjectStructure(projectName, moduleName string) {
 	}
 
 	mainContent := fmt.Sprintf(`"""Ponto de entrada de %s."""
+import uvicorn
 
 
 def main() -> None:
-    print("Hello from %s!")
+    uvicorn.run("app.api.presentation.http.app:app", host="0.0.0.0", port=8000, reload=True)
 
 
 if __name__ == "__main__":
     main()
-`, moduleName, moduleName)
+`, moduleName)
 	os.WriteFile(filepath.Join(basePath, "__main__.py"), []byte(mainContent), 0644)
 
 	entityExample := `"""Entidade base do domínio."""
@@ -486,6 +487,48 @@ class Runnable(Protocol):
 `
 	os.WriteFile(filepath.Join(basePath, "shared", "contracts", "base.py"), []byte(contractExample), 0644)
 
+	healthRoute := `"""Rota de healthcheck."""
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+router = APIRouter(prefix="/health", tags=["health"])
+
+
+class HealthResponse(BaseModel):
+    status: str
+
+
+@router.get("", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+`
+	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "routes", "health.py"), []byte(healthRoute), 0644)
+
+	httpApp := fmt.Sprintf(`"""FastAPI application factory."""
+import os
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.presentation.http.routes.health import router as health_router
+
+app = FastAPI(title="%s", version="0.1.0")
+
+_origins = os.getenv("CORS_ORIGINS", "*")
+origins = [o.strip() for o in _origins.split(",")] if _origins != "*" else ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health_router)
+`, projectName)
+	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "app.py"), []byte(httpApp), 0644)
+
 	// .gitkeep em pastas de artefatos não-Python
 	for _, dir := range []string{
 		filepath.Join(basePath, "ia", "prompts"),
@@ -506,6 +549,8 @@ requires-python = ">=%s"
 dependencies = [
     "pydantic>=2.0.0",
     "httpx>=0.25.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -646,6 +691,10 @@ TEMPORAL_NAMESPACE=default
 
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/db
+
+# CORS — use "*" para liberar tudo (dev) ou lista separada por vírgula (prod)
+# Exemplo prod: CORS_ORIGINS=https://app.algarys.com.br,https://admin.algarys.com.br
+CORS_ORIGINS=*
 `
 	os.WriteFile(filepath.Join(projectName, ".env.example"), []byte(envExample), 0644)
 
