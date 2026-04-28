@@ -435,6 +435,106 @@ class ValidationError(AppException):
 `
 	os.WriteFile(filepath.Join(basePath, "core", "exceptions.py"), []byte(coreExample), 0644)
 
+	settingsModule := `"""Configurações da aplicação via pydantic-settings."""
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # API
+    cors_origins: str = "*"
+
+    # Logging
+    log_level: str = "INFO"
+
+    # OpenAI
+    openai_api_key: str = ""
+
+    # Anthropic
+    anthropic_api_key: str = ""
+
+    # Temporal
+    temporal_host: str = "localhost:7233"
+    temporal_namespace: str = "default"
+
+    # Database
+    database_url: str = ""
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
+`
+	os.WriteFile(filepath.Join(basePath, "core", "settings.py"), []byte(settingsModule), 0644)
+
+	loggingSetup := `"""Configuração centralizada de logging."""
+import sys
+from pathlib import Path
+
+from loguru import logger
+
+from app.core.settings import settings
+
+LOGS_DIR = Path("logs")
+_SUBDIRS = ["debug", "info", "warning", "error", "exception"]
+_FMT_FILE = "{time:YYYY-MM-DD HH:mm:ss} | {level: <9} | {name}:{line} - {message}"
+_FMT_CONSOLE = (
+    "<green>{time:HH:mm:ss}</green> | <level>{level: <9}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
+
+
+def _level_filter(name: str):
+    def _filter(record):
+        return record["level"].name == name.upper()
+    return _filter
+
+
+def _exception_filter(record) -> bool:
+    return record["exception"] is not None
+
+
+def setup_logging() -> None:
+    for sub in _SUBDIRS:
+        (LOGS_DIR / sub).mkdir(parents=True, exist_ok=True)
+
+    logger.remove()
+
+    logger.add(sys.stdout, level=settings.log_level.upper(), colorize=True, format=_FMT_CONSOLE)
+
+    for lvl in ("debug", "info", "warning", "error"):
+        logger.add(
+            LOGS_DIR / lvl / "app.log",
+            level=lvl.upper(),
+            filter=_level_filter(lvl),
+            rotation="10 MB",
+            retention="30 days",
+            encoding="utf-8",
+            format=_FMT_FILE,
+        )
+
+    logger.add(
+        LOGS_DIR / "exception" / "app.log",
+        level="ERROR",
+        filter=_exception_filter,
+        rotation="10 MB",
+        retention="30 days",
+        encoding="utf-8",
+        format=_FMT_FILE,
+    )
+`
+	os.WriteFile(filepath.Join(basePath, "core", "logging.py"), []byte(loggingSetup), 0644)
+
 	agentExample := `"""Base para agentes de IA."""
 from abc import ABC, abstractmethod
 from typing import Any
@@ -505,17 +605,26 @@ async def health() -> HealthResponse:
 	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "routes", "health.py"), []byte(healthRoute), 0644)
 
 	httpApp := fmt.Sprintf(`"""FastAPI application factory."""
-import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.presentation.http.routes.health import router as health_router
+from app.core.logging import setup_logging
+from app.core.settings import settings
 
-app = FastAPI(title="%s", version="0.1.0")
 
-_origins = os.getenv("CORS_ORIGINS", "*")
-origins = [o.strip() for o in _origins.split(",")] if _origins != "*" else ["*"]
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    yield
+
+
+app = FastAPI(title="%s", version="0.1.0", lifespan=lifespan)
+
+_raw = settings.cors_origins
+origins = [o.strip() for o in _raw.split(",")] if _raw != "*" else ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -548,9 +657,11 @@ readme = "README.md"
 requires-python = ">=%s"
 dependencies = [
     "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
     "httpx>=0.25.0",
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
+    "loguru>=0.7.0",
 ]
 
 [project.optional-dependencies]
@@ -661,6 +772,9 @@ Thumbs.db
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb_checkpoints
+
+# Logs
+logs/
 
 # AI/ML
 *.pt
