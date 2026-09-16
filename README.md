@@ -36,6 +36,10 @@ algarys init
 
 O comando interativo pergunta nome, descricao, versao do Python e se deseja criar repositorio no GitHub (requer login).
 
+Quando o repositorio remoto é criado, o projeto recebe automaticamente o fluxo
+`feature/*` → `dev` → `main`, com as duas branches publicadas, rulesets de
+proteção e validação obrigatória da origem dos PRs para `main`.
+
 **Estrutura criada:**
 
 ```
@@ -126,6 +130,18 @@ algarys version
 | [UV](https://docs.astral.sh/uv/) | Projetos Python e transcricao | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | [GitHub CLI](https://cli.github.com/) | Login e criar repos | `brew install gh` |
 | [ffmpeg](https://ffmpeg.org/) | Transcricao de audio | `brew install ffmpeg` |
+
+## Governança de branches
+
+Projetos criados pelo CLI seguem o fluxo:
+
+```text
+feature/* → dev → main
+```
+
+A branch `dev` é a integração e exige aprovação em Pull Requests. A branch
+`main` é a fonte de verdade e release; somente PRs originados de `dev` podem
+ser mesclados, validados pelo workflow `Enforce dev as main source`.
 
 ## Desenvolvimento
 
