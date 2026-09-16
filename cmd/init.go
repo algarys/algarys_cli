@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -146,36 +145,34 @@ func runInit(cmd *cobra.Command, args []string) {
 	steps := []struct {
 		icon    string
 		message string
-		action  func() bool
+		action  func() error
 	}{
-		{ui.IconFolder, "Criando estrutura de diretórios", func() bool {
+		{ui.IconFolder, "Criando estrutura de diretórios", func() error {
 			createProjectStructure(config.Name, moduleName)
-			return true
+			return nil
 		}},
-		{ui.IconFile, "Gerando arquivos de configuração", func() bool {
+		{ui.IconFile, "Gerando arquivos de configuração", func() error {
 			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-			return true
+			return createGovernanceFiles(config.Name)
 		}},
-		{ui.IconGit, "Inicializando repositório Git", func() bool {
-			initLocalGit(config.Name)
-			return true
+		{ui.IconGit, "Inicializando repositório Git", func() error {
+			return initLocalGit(config.Name)
 		}},
-		{ui.IconPython, "Configurando ambiente UV", func() bool {
+		{ui.IconPython, "Configurando ambiente UV", func() error {
 			return initUV(config.Name)
 		}},
 	}
-
 	for _, step := range steps {
 		spinner := ui.NewSpinner(step.icon + "  " + step.message)
 		spinner.Start()
 		time.Sleep(300 * time.Millisecond) // Pequeno delay para visual
 
-		success := step.action()
+		err := step.action()
 
-		if success {
+		if err == nil {
 			spinner.Success(step.message)
 		} else {
-			spinner.Warning(step.message + " (pulado)")
+			spinner.Warning(fmt.Sprintf("%s: %v", step.message, err))
 		}
 	}
 
@@ -194,21 +191,20 @@ func runInit(cmd *cobra.Command, args []string) {
 			spinner.Start()
 			time.Sleep(300 * time.Millisecond)
 
-			if createGitHubRepo(config.Name, config.Description, config.GitHubOrg) {
+			if err := createGitHubRepo(config.Name, config.Description, config.GitHubOrg); err == nil {
 				spinner.Success(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
 
-				// Configurar ruleset
-				spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando regras de proteção")
+				spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando governança de branches")
 				spinner2.Start()
 				time.Sleep(300 * time.Millisecond)
 
-				if configureRuleset(repoName, config.GitHubOrg) {
-					spinner2.Success("Ruleset configurado (PR + linear history)")
+				if err := configureRulesets(repoName, config.GitHubOrg); err == nil {
+					spinner2.Success("Rulesets dev e main configurados")
 				} else {
-					spinner2.Warning("Ruleset não configurado automaticamente")
+					spinner2.Warning(fmt.Sprintf("Governança não configurada: %v", err))
 				}
 			} else {
-				spinner.Warning("Repositório não criado (verifique acesso)")
+				spinner.Warning(fmt.Sprintf("Repositório não criado: %v", err))
 			}
 		}
 	}
@@ -817,6 +813,16 @@ CORS_ORIGINS=*
 
 %s
 
+## Governança de branches
+
+Este projeto utiliza o fluxo de desenvolvimento:
+
+feature/* → dev → main
+
+- dev é a branch de integração e requer Pull Request com aprovação.
+- main é a fonte de verdade e de release.
+- Pull Requests para main devem partir exclusivamente de dev.
+
 ## Estrutura do Projeto
 
 `+"```"+`
@@ -905,122 +911,4 @@ Criado com [Algarys CLI](https://github.com/algarys/algarys_cli)
 `, projectName, description, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "README.md"), []byte(readme), 0644)
-}
-
-func initUV(projectName string) bool {
-	if _, err := exec.LookPath("uv"); err != nil {
-		return false
-	}
-
-	cmd := exec.Command("uv", "sync")
-	cmd.Dir = projectName
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-
-	return true
-}
-
-func createGitHubRepo(projectName, description, org string) bool {
-	if _, err := exec.LookPath("gh"); err != nil {
-		return false
-	}
-
-	authCheck := exec.Command("gh", "auth", "status")
-	authCheck.Stdout = nil
-	authCheck.Stderr = nil
-	if err := authCheck.Run(); err != nil {
-		return false
-	}
-
-	// Nome do repo segue padrão da org: algarys_nome-do-projeto
-	repoName := fmt.Sprintf("algarys_%s", projectName)
-
-	args := []string{
-		"repo", "create",
-		fmt.Sprintf("%s/%s", org, repoName),
-		"--private",
-		"--source", ".",
-		"--push",
-	}
-
-	if description != "" {
-		args = append(args, "--description", description)
-	}
-
-	cmd := exec.Command("gh", args...)
-	cmd.Dir = projectName
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-
-	return true
-}
-
-func initLocalGit(projectName string) {
-	cmds := [][]string{
-		{"git", "init", "-q", "-b", "main"},
-		{"git", "add", "."},
-		{"git", "commit", "-q", "-m", "Initial commit - Algarys project structure"},
-	}
-
-	for _, args := range cmds {
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Dir = projectName
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		cmd.Run()
-	}
-}
-
-func configureRuleset(repoName, org string) bool {
-	// Ruleset JSON: exige PR (1 approval) e linear history na branch main
-	rulesetJSON := `{
-		"name": "Protect main",
-		"target": "branch",
-		"enforcement": "active",
-		"conditions": {
-			"ref_name": {
-				"include": ["refs/heads/main"],
-				"exclude": []
-			}
-		},
-		"rules": [
-			{
-				"type": "pull_request",
-				"parameters": {
-					"required_approving_review_count": 1,
-					"dismiss_stale_reviews_on_push": false,
-					"require_code_owner_review": false,
-					"require_last_push_approval": false,
-					"required_review_thread_resolution": false
-				}
-			},
-			{
-				"type": "required_linear_history"
-			}
-		]
-	}`
-
-	cmd := exec.Command("gh", "api",
-		fmt.Sprintf("/repos/%s/%s/rulesets", org, repoName),
-		"-X", "POST",
-		"-H", "Accept: application/vnd.github+json",
-		"--input", "-",
-	)
-	cmd.Stdin = strings.NewReader(rulesetJSON)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-
-	return true
 }

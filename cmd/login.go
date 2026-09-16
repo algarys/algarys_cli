@@ -152,10 +152,8 @@ func runLogout(cmd *cobra.Command, args []string) {
 
 // IsLoggedIn verifica se o usuário está autenticado no GitHub
 func IsLoggedIn() bool {
-	cmd := exec.Command("gh", "auth", "status")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Run() == nil
+	_, err := runCommand("", "", "gh", "auth", "status")
+	return err == nil
 }
 
 func getGitHubUser() string {
