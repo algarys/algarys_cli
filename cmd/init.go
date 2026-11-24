@@ -34,10 +34,13 @@ var initCmd = &cobra.Command{
 }
 
 func init() {
+	initCmd.Flags().StringVar(&aiTeamFlag, "ai-team", defaultAITeamSlug,
+		"slug do time da org com permissão admin no repositório criado (vazio desativa; env "+aiTeamEnvVar+")")
 	rootCmd.AddCommand(initCmd)
 }
 
 func runInit(cmd *cobra.Command, args []string) {
+	aiTeamFlagSet = cmd.Flags().Changed("ai-team")
 	// Banner
 	fmt.Println()
 	fmt.Println(ui.RenderBanner())
@@ -193,6 +196,16 @@ func runInit(cmd *cobra.Command, args []string) {
 
 			if err := createGitHubRepo(config.Name, config.Description, config.GitHubOrg); err == nil {
 				spinner.Success(fmt.Sprintf("Repositório criado: github.com/%s/%s", config.GitHubOrg, repoName))
+
+				if teamSlug := resolveAITeamSlug(); teamSlug != "" {
+					spinnerTeam := ui.NewSpinner(ui.IconLock + "  Dando admin ao time " + teamSlug)
+					spinnerTeam.Start()
+					if err := grantTeamAdmin(config.GitHubOrg, repoName, teamSlug); err == nil {
+						spinnerTeam.Success(fmt.Sprintf("Time %s com admin no repositório", teamSlug))
+					} else {
+						spinnerTeam.Warning(fmt.Sprintf("Time não recebeu admin (siga sem ele; peça a um owner da org): %v", err))
+					}
+				}
 
 				spinner2 := ui.NewSpinner(ui.IconLock + "  Configurando governança de branches")
 				spinner2.Start()
