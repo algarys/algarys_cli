@@ -40,6 +40,17 @@ Quando o repositorio remoto é criado, o projeto recebe automaticamente o fluxo
 `feature/*` → `dev` → `main`, com as duas branches publicadas, rulesets de
 proteção e validação obrigatória da origem dos PRs para `main`.
 
+O time `engenheiros-de-ia` da org recebe permissão de **admin** no repositório
+criado (`PUT /orgs/algarys/teams/engenheiros-de-ia/repos/algarys/<repo>`). Se a
+chamada falhar (ex.: sem permissão para gerenciar times), o CLI avisa e segue
+sem derrubar a criação do repositório.
+
+| Opção | Descrição | Padrão |
+|-------|-----------|--------|
+| `--ai-team <slug>` | Time que recebe admin | `engenheiros-de-ia` |
+| `ALGARYS_AI_TEAM=<slug>` | Mesmo efeito via variável de ambiente (a flag vence) | - |
+| `--ai-team ""` ou `ALGARYS_AI_TEAM=""` | Não concede permissão a nenhum time | - |
+
 **Estrutura criada:**
 
 ```
