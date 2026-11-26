@@ -1,0 +1,362 @@
+import json
+import socket
+import threading
+import time
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
+
+import pytest
+from scripts import deploy_portainer
+from scripts.deploy_portainer import (
+    HEALTH,
+    USER_AGENT,
+    DeployError,
+    Portainer,
+    main,
+    motivo_fora_do_ar,
+)
+
+
+@dataclass
+class Pedido:
+    metodo: str
+    caminho: str
+    token: str | None
+    corpo: Any
+    user_agent: str | None
+
+
+@dataclass
+class FakeServidor:
+    url: str = ""
+    respostas: dict[tuple[str, str], tuple[int, bytes]] = field(default_factory=dict)
+    pedidos: list[Pedido] = field(default_factory=list)
+    pausa_no_corpo: dict[tuple[str, str], int] = field(default_factory=dict)
+    corpo_incompleto: set[tuple[str, str]] = field(default_factory=set)
+
+    def responder(
+        self, metodo: str, caminho: str, corpo: Any, status: int = 200
+    ) -> None:
+        conteudo = corpo if isinstance(corpo, bytes) else json.dumps(corpo).encode()
+        self.respostas[(metodo, caminho)] = (status, conteudo)
+
+
+@pytest.fixture
+def servidor() -> Iterator[FakeServidor]:
+    fake = FakeServidor()
+
+    class Handler(BaseHTTPRequestHandler):
+        def _atender(self) -> None:
+            tamanho = int(self.headers.get("Content-Length") or 0)
+            corpo = self.rfile.read(tamanho)
+            fake.pedidos.append(
+                Pedido(
+                    self.command,
+                    self.path,
+                    self.headers.get("X-API-Key"),
+                    json.loads(corpo) if corpo else None,
+                    self.headers.get("User-Agent"),
+                )
+            )
+            status, resposta = fake.respostas.get(
+                (self.command, self.path), (404, b"not found")
+            )
+            incompleto = (self.command, self.path) in fake.corpo_incompleto
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(resposta) + 10 * incompleto))
+            self.end_headers()
+            self.close_connection = incompleto
+            pausa = fake.pausa_no_corpo.get((self.command, self.path))
+            if pausa is not None:
+                self.wfile.write(resposta[:pausa])
+                time.sleep(0.5)
+                resposta = resposta[pausa:]
+            self.wfile.write(resposta)
+
+        def do_GET(self) -> None:  # noqa: N802
+            self._atender()
+
+        def do_PUT(self) -> None:  # noqa: N802
+            self._atender()
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    fake.url = f"http://127.0.0.1:{httpd.server_port}"
+    yield fake
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_portainer_client_reads_stack_and_sends_update_with_api_key(
+    servidor: FakeServidor,
+) -> None:
+    env = [{"name": "IMAGE_TAG", "value": "sha-aaaaaaa"}]
+    servidor.responder("GET", "/api/stacks/7", {"Id": 7, "Env": env})
+    servidor.responder("GET", "/api/stacks/7/file", {"StackFileContent": "image: x"})
+    servidor.responder("PUT", "/api/stacks/7?endpointId=3", {"Id": 7})
+    portainer = Portainer(servidor.url + "/", "segredo", "7", "3")
+
+    assert portainer.env() == env
+    assert portainer.arquivo() == "image: x"
+    portainer.atualizar("image: x", [{"name": "IMAGE_TAG", "value": "sha-bbbbbbb"}])
+
+    assert [(p.metodo, p.caminho, p.token) for p in servidor.pedidos] == [
+        ("GET", "/api/stacks/7", "segredo"),
+        ("GET", "/api/stacks/7/file", "segredo"),
+        ("PUT", "/api/stacks/7?endpointId=3", "segredo"),
+    ]
+    assert servidor.pedidos[-1].corpo == {
+        "stackFileContent": "image: x",
+        "env": [{"name": "IMAGE_TAG", "value": "sha-bbbbbbb"}],
+        "prune": False,
+        "pullImage": True,
+    }
+
+
+def _porta_fechada() -> str:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return f"http://127.0.0.1:{sock.getsockname()[1]}"
+
+
+def test_portainer_error_response_becomes_deploy_error_with_status_and_body(
+    servidor: FakeServidor,
+) -> None:
+    servidor.responder("PUT", "/api/stacks/7?endpointId=3", b"pull failed", 500)
+    portainer = Portainer(servidor.url, "segredo", "7", "3")
+
+    with pytest.raises(DeployError, match="500 em PUT /api/stacks/7.*pull failed"):
+        portainer.atualizar("image: x", [])
+
+
+def test_portainer_error_whose_body_never_arrives_still_becomes_deploy_error(
+    servidor: FakeServidor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(deploy_portainer, "TIMEOUT_PORTAINER_SEGUNDOS", 0.1)
+    servidor.responder("PUT", "/api/stacks/7?endpointId=3", b"pull failed", 500)
+    servidor.pausa_no_corpo[("PUT", "/api/stacks/7?endpointId=3")] = 0
+    portainer = Portainer(servidor.url, "segredo", "7", "3")
+
+    with pytest.raises(DeployError, match=r"^Portainer respondeu 500 em PUT"):
+        portainer.atualizar("image: x", [])
+
+
+def test_truncated_portainer_response_becomes_deploy_error(
+    servidor: FakeServidor,
+) -> None:
+    servidor.responder("GET", "/api/stacks/7", {"Env": []})
+    servidor.corpo_incompleto.add(("GET", "/api/stacks/7"))
+    portainer = Portainer(servidor.url, "segredo", "7", "3")
+
+    with pytest.raises(DeployError, match="resposta inválida em GET /api/stacks/7"):
+        portainer.env()
+
+
+def test_unreachable_portainer_becomes_deploy_error() -> None:
+    portainer = Portainer(_porta_fechada(), "segredo", "7", "3")
+
+    with pytest.raises(DeployError, match="GET /api/stacks/7"):
+        portainer.env()
+
+
+def test_non_json_portainer_response_becomes_deploy_error(
+    servidor: FakeServidor,
+) -> None:
+    servidor.responder("GET", "/api/stacks/7", b"<html>login</html>")
+    portainer = Portainer(servidor.url, "segredo", "7", "3")
+
+    with pytest.raises(DeployError, match="resposta inválida em GET /api/stacks/7"):
+        portainer.env()
+
+
+def _no_ar(servidor: FakeServidor, versao: str = "bbbbbbb") -> None:
+    servidor.responder("GET", HEALTH, {"status": "ok", "version": versao})
+<%- if .TemFrontend %>
+    servidor.responder("GET", "/version.txt", f"{versao}\n".encode())
+<%- end %>
+
+
+def test_new_version_is_live_when_health_reports_it(servidor: FakeServidor) -> None:
+    _no_ar(servidor)
+
+    assert motivo_fora_do_ar(servidor.url + "/", "bbbbbbb") is None
+
+
+@pytest.mark.parametrize(
+    ("health", "status", "motivo"),
+    [
+        (
+            {"status": "ok", "version": "aaaaaaa"},
+            200,
+            f"{HEALTH} na versão 'aaaaaaa'",
+        ),
+        (
+            {"status": "error", "version": "bbbbbbb"},
+            503,
+            f'HTTP 503 em {HEALTH}: {{"status": "error", "version": "bbbbbbb"}}',
+        ),
+        (b"error code: 1010", 403, f"HTTP 403 em {HEALTH}: error code: 1010"),
+        (b"<html>502 Bad Gateway</html>", 200, f"{HEALTH} não respondeu JSON"),
+        (b'"bbbbbbb"', 200, f"{HEALTH} na versão None"),
+    ],
+)
+def test_new_version_is_not_live_while_health_disagrees(
+    servidor: FakeServidor, health: Any, status: int, motivo: str
+) -> None:
+    _no_ar(servidor)
+    servidor.responder("GET", HEALTH, health, status)
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == motivo
+<% if .TemFrontend %>
+
+def test_new_version_is_not_live_while_version_txt_disagrees(
+    servidor: FakeServidor,
+) -> None:
+    _no_ar(servidor)
+    servidor.responder("GET", "/version.txt", b"aaaaaaa\n")
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == (
+        "/version.txt na versão 'aaaaaaa'"
+    )
+
+
+def test_new_version_is_not_live_without_version_txt(servidor: FakeServidor) -> None:
+    servidor.responder("GET", HEALTH, {"status": "ok", "version": "bbbbbbb"})
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == (
+        "HTTP 404 em /version.txt: not found"
+    )
+<% end %>
+
+def test_app_error_whose_body_never_arrives_is_reported_by_status(
+    servidor: FakeServidor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(deploy_portainer, "TIMEOUT_APP_SEGUNDOS", 0.1)
+    servidor.responder("GET", HEALTH, b"error code: 1010", 403)
+    servidor.pausa_no_corpo[("GET", HEALTH)] = 0
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == f"HTTP 403 em {HEALTH}"
+
+
+def test_app_error_body_is_read_only_up_to_what_the_reason_shows(
+    servidor: FakeServidor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(deploy_portainer, "TIMEOUT_APP_SEGUNDOS", 0.1)
+    servidor.responder("GET", HEALTH, b"x" * 1000, 403)
+    servidor.pausa_no_corpo[("GET", HEALTH)] = 500
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == (
+        f"HTTP 403 em {HEALTH}: " + "x" * 500
+    )
+
+
+def test_app_body_over_the_limit_is_rejected_without_reading_the_rest(
+    servidor: FakeServidor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(deploy_portainer, "TIMEOUT_APP_SEGUNDOS", 0.1)
+    limite = deploy_portainer.LIMITE_CORPO_APP_BYTES
+    servidor.responder("GET", HEALTH, b" " * (limite + 1000))
+    servidor.pausa_no_corpo[("GET", HEALTH)] = limite + 1
+
+    assert motivo_fora_do_ar(servidor.url, "bbbbbbb") == (
+        f"{HEALTH} respondeu mais de {limite} bytes"
+    )
+
+
+def test_truncated_app_response_is_reported_as_invalid(
+    servidor: FakeServidor,
+) -> None:
+    _no_ar(servidor)
+    servidor.corpo_incompleto.add(("GET", HEALTH))
+
+    motivo = motivo_fora_do_ar(servidor.url, "bbbbbbb")
+
+    assert motivo is not None
+    assert motivo.startswith(f"{HEALTH} deu resposta inválida: IncompleteRead")
+
+
+def test_app_is_polled_with_explicit_user_agent_not_blocked_by_cloudflare(
+    servidor: FakeServidor,
+) -> None:
+    _no_ar(servidor)
+
+    motivo_fora_do_ar(servidor.url, "bbbbbbb")
+
+    assert USER_AGENT == "<% .Projeto %>-deploy/1.0"
+    assert {p.user_agent for p in servidor.pedidos} == {USER_AGENT}
+
+
+def test_new_version_is_not_live_while_app_is_unreachable() -> None:
+    motivo = motivo_fora_do_ar(_porta_fechada(), "bbbbbbb")
+
+    assert motivo is not None
+    assert motivo.startswith(f"{HEALTH} inacessível: ")
+
+
+def test_app_url_without_scheme_is_reported_as_invalid_not_as_bad_json() -> None:
+    motivo = motivo_fora_do_ar("app.algarys.com.br", "bbbbbbb")
+
+    assert motivo is not None
+    assert motivo.startswith("APP_URL inválida: unknown url type")
+
+
+def test_main_deploys_tag_from_environment_and_confirms_it_is_live(
+    servidor: FakeServidor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+<%- if .TemFrontend %>
+    arquivo = "image: a-api:${IMAGE_TAG}\nimage: a-frontend:${IMAGE_TAG}\n"
+<%- else %>
+    arquivo = "image: a-api:${IMAGE_TAG}\n"
+<%- end %>
+    env = [{"name": "IMAGE_TAG", "value": "sha-aaaaaaa"}]
+    servidor.responder("GET", "/api/stacks/7", {"Env": env})
+    servidor.responder("GET", "/api/stacks/7/file", {"StackFileContent": arquivo})
+    servidor.responder("PUT", "/api/stacks/7?endpointId=3", {"Id": 7})
+    _no_ar(servidor)
+    for nome, valor in {
+        "PORTAINER_URL": servidor.url,
+        "PORTAINER_STACK_ID": "7",
+        "PORTAINER_ENDPOINT_ID": "3",
+        "PORTAINER_ACCESS_TOKEN": "segredo",
+        "APP_URL": servidor.url,
+        "IMAGE_TAG": "sha-bbbbbbb",
+    }.items():
+        monkeypatch.setenv(nome, valor)
+
+    assert main() == 0
+    assert servidor.pedidos[2].corpo["env"] == [
+        {"name": "IMAGE_TAG", "value": "sha-bbbbbbb"}
+    ]
+
+
+def test_main_fails_listing_missing_variables_before_any_request(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("PORTAINER_URL", "http://portainer")
+    for nome in ("PORTAINER_STACK_ID", "PORTAINER_ENDPOINT_ID", "APP_URL"):
+        monkeypatch.setenv(nome, "x")
+    monkeypatch.delenv("PORTAINER_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("IMAGE_TAG", "")
+
+    assert main() == 1
+    assert "PORTAINER_ACCESS_TOKEN, IMAGE_TAG" in capsys.readouterr().out
+
+
+def test_main_fails_with_annotation_when_deploy_fails(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for nome in ("PORTAINER_STACK_ID", "PORTAINER_ENDPOINT_ID", "APP_URL"):
+        monkeypatch.setenv(nome, "x")
+    monkeypatch.setenv("PORTAINER_URL", _porta_fechada())
+    monkeypatch.setenv("PORTAINER_ACCESS_TOKEN", "segredo")
+    monkeypatch.setenv("IMAGE_TAG", "sha-bbbbbbb")
+
+    assert main() == 1
+    assert capsys.readouterr().out.startswith(
+        "::error::Portainer inacessível em GET /api/stacks/x"
+    )

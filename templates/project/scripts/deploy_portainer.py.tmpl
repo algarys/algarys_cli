@@ -1,0 +1,277 @@
+"""Troca o IMAGE_TAG de uma stack do Portainer e confere se a versão nova subiu."""
+
+import http.client
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from typing import Any, Protocol
+
+VARIAVEIS = (
+    "PORTAINER_URL",
+    "PORTAINER_STACK_ID",
+    "PORTAINER_ENDPOINT_ID",
+    "PORTAINER_ACCESS_TOKEN",
+    "APP_URL",
+    "IMAGE_TAG",
+)
+<%- if .TemFrontend %>
+IMAGENS = ("api", "frontend")
+HEALTH = "/api/health"
+CONFERIDAS = "/api/health e /version.txt"
+<%- else %>
+IMAGENS = ("api",)
+HEALTH = "/health"
+CONFERIDAS = HEALTH
+<%- end %>
+PRAZO_SEGUNDOS = 180
+INTERVALO_SEGUNDOS = 5
+# O PUT só responde depois do pull e do compose up da stack.
+TIMEOUT_PORTAINER_SEGUNDOS = 300
+TIMEOUT_APP_SEGUNDOS = 5
+LIMITE_CORPO_APP_BYTES = 64 * 1024
+LIMITE_CORPO_ERRO_BYTES = 500
+# O Cloudflare na frente do app bloqueia o User-Agent padrão do urllib (403, 1010).
+USER_AGENT = "<% .Projeto %>-deploy/1.0"
+_TAG_SHA = re.compile(r"sha-([0-9a-f]{7})")
+
+Env = list[dict[str, str]]
+
+
+class DeployError(Exception):
+    pass
+
+
+def versao_da_tag(tag: str) -> str:
+    casou = _TAG_SHA.fullmatch(tag)
+    if casou is None:
+        raise DeployError(f"IMAGE_TAG deve ser sha-<7 hex do commit>, recebido {tag!r}")
+    return casou.group(1)
+
+
+def imagens_sem_tag(arquivo: str) -> list[str]:
+    return [
+        imagem
+        for imagem in IMAGENS
+        if not re.search(
+            rf"^\s*image:\s*[\"']?\S*-{imagem}:\$\{{IMAGE_TAG\b", arquivo, re.MULTILINE
+        )
+    ]
+
+
+def trocar_tag(env: Env, tag: str) -> tuple[Env, str]:
+    anterior = next((v["value"] for v in env if v["name"] == "IMAGE_TAG"), None)
+    if not anterior:
+        raise DeployError(
+            "a stack no Portainer está sem IMAGE_TAG nas variáveis: sem tag anterior"
+            " para reverter, defina-a no editor da stack antes do primeiro deploy"
+        )
+    novo = [{**v, "value": tag} if v["name"] == "IMAGE_TAG" else dict(v) for v in env]
+    return novo, anterior
+
+
+class Stack(Protocol):
+    def env(self) -> Env: ...
+
+    def arquivo(self) -> str: ...
+
+    def atualizar(self, arquivo: str, env: Env) -> None: ...
+
+
+def _com_corpo(motivo: str, erro: urllib.error.HTTPError) -> str:
+    try:
+        with erro:
+            corpo = erro.read(LIMITE_CORPO_ERRO_BYTES).decode(errors="replace").strip()
+    except (OSError, http.client.HTTPException):
+        return motivo
+    return f"{motivo}: {corpo}" if corpo else motivo
+
+
+class Portainer:
+    def __init__(self, url: str, token: str, stack_id: str, endpoint_id: str):
+        self._url = url.rstrip("/")
+        self._token = token
+        self._stack = f"/api/stacks/{stack_id}"
+        self._endpoint_id = endpoint_id
+
+    def env(self) -> Env:
+        env: Env = self._pedir("GET", self._stack)["Env"] or []
+        return env
+
+    def arquivo(self) -> str:
+        arquivo: str = self._pedir("GET", f"{self._stack}/file")["StackFileContent"]
+        return arquivo
+
+    def atualizar(self, arquivo: str, env: Env) -> None:
+        self._pedir(
+            "PUT",
+            f"{self._stack}?endpointId={self._endpoint_id}",
+            {
+                "stackFileContent": arquivo,
+                "env": env,
+                "prune": False,
+                "pullImage": True,
+            },
+        )
+
+    def _pedir(self, metodo: str, caminho: str, corpo: object = None) -> Any:
+        pedido = urllib.request.Request(
+            self._url + caminho,
+            method=metodo,
+            headers={"X-API-Key": self._token, "Content-Type": "application/json"},
+            data=None if corpo is None else json.dumps(corpo).encode(),
+        )
+        try:
+            with urllib.request.urlopen(
+                pedido, timeout=TIMEOUT_PORTAINER_SEGUNDOS
+            ) as resposta:
+                return json.load(resposta)
+        except urllib.error.HTTPError as erro:
+            raise DeployError(
+                _com_corpo(
+                    f"Portainer respondeu {erro.code} em {metodo} {caminho}", erro
+                )
+            ) from erro
+        except OSError as erro:
+            raise DeployError(
+                f"Portainer inacessível em {metodo} {caminho}: {erro}"
+            ) from erro
+        except (ValueError, http.client.HTTPException) as erro:
+            raise DeployError(
+                f"Portainer deu resposta inválida em {metodo} {caminho}: {erro}"
+            ) from erro
+
+
+class _AppIndisponivelError(Exception):
+    pass
+
+
+def motivo_fora_do_ar(app_url: str, versao: str) -> str | None:
+    """Diz por que a versão ainda não está no ar, ou None se ela já está."""
+    app_url = app_url.rstrip("/")
+    try:
+        health = json.loads(_ler_do_app(app_url, HEALTH))
+<%- if .TemFrontend %>
+        version_txt = _ler_do_app(app_url, "/version.txt").strip()
+<%- end %>
+    except _AppIndisponivelError as erro:
+        return str(erro)
+    except ValueError:
+        return f"{HEALTH} não respondeu JSON"
+    versao_health = health.get("version") if isinstance(health, dict) else None
+    if versao_health != versao:
+        return f"{HEALTH} na versão {versao_health!r}"
+<%- if .TemFrontend %>
+    if version_txt != versao:
+        return f"/version.txt na versão {version_txt!r}"
+<%- end %>
+    return None
+
+
+def _ler_do_app(app_url: str, caminho: str) -> str:
+    try:
+        pedido = urllib.request.Request(
+            app_url + caminho, headers={"User-Agent": USER_AGENT}
+        )
+    except ValueError as erro:
+        raise _AppIndisponivelError(f"APP_URL inválida: {erro}") from erro
+    try:
+        with urllib.request.urlopen(pedido, timeout=TIMEOUT_APP_SEGUNDOS) as resposta:
+            corpo: bytes = resposta.read(LIMITE_CORPO_APP_BYTES + 1)
+            if len(corpo) > LIMITE_CORPO_APP_BYTES:
+                raise _AppIndisponivelError(
+                    f"{caminho} respondeu mais de {LIMITE_CORPO_APP_BYTES} bytes"
+                )
+            # read(n) não acusa corpo truncado: sobra length do Content-Length.
+            if resposta.length:
+                raise http.client.IncompleteRead(corpo, resposta.length)
+            return corpo.decode(errors="replace")
+    except urllib.error.HTTPError as erro:
+        raise _AppIndisponivelError(
+            _com_corpo(f"HTTP {erro.code} em {caminho}", erro)
+        ) from erro
+    except OSError as erro:
+        raise _AppIndisponivelError(f"{caminho} inacessível: {erro}") from erro
+    except http.client.HTTPException as erro:
+        raise _AppIndisponivelError(
+            f"{caminho} deu resposta inválida: {erro}"
+        ) from erro
+
+
+def deploy(
+    stack: Stack,
+    tag: str,
+    fora_do_ar: Callable[[str], str | None],
+    *,
+    relogio: Callable[[], float] = time.monotonic,
+    dormir: Callable[[float], None] = time.sleep,
+) -> None:
+    versao = versao_da_tag(tag)
+    env, arquivo = stack.env(), stack.arquivo()
+    if faltando := imagens_sem_tag(arquivo):
+        raise DeployError(
+            "a stack no Portainer não usa ${IMAGE_TAG} na imagem de: "
+            + ", ".join(faltando)
+        )
+    novo, anterior = trocar_tag(env, tag)
+    print(f"IMAGE_TAG: {anterior} -> {tag}")
+    try:
+        stack.atualizar(arquivo, novo)
+        print(f"stack atualizada; aguardando {versao} em até {PRAZO_SEGUNDOS}s")
+        _esperar(fora_do_ar, versao, relogio, dormir)
+    except DeployError as erro:
+        try:
+            stack.atualizar(arquivo, env)
+        except DeployError as falha:
+            raise DeployError(
+                f"{erro}; e a reversão para {anterior} falhou: {falha}"
+            ) from falha
+        raise DeployError(f"{erro}; stack revertida para {anterior}") from erro
+
+
+def _esperar(
+    fora_do_ar: Callable[[str], str | None],
+    versao: str,
+    relogio: Callable[[], float],
+    dormir: Callable[[float], None],
+) -> None:
+    limite = relogio() + PRAZO_SEGUNDOS
+    while (motivo := fora_do_ar(versao)) is not None:
+        if relogio() >= limite:
+            raise DeployError(
+                f"{versao} não apareceu em {CONFERIDAS}"
+                f" em {PRAZO_SEGUNDOS}s (último motivo: {motivo})"
+            )
+        dormir(INTERVALO_SEGUNDOS)
+
+
+def main() -> int:
+    if faltando := [nome for nome in VARIAVEIS if not os.environ.get(nome)]:
+        print(f"::error::faltam variáveis: {', '.join(faltando)}")
+        return 1
+    e = os.environ
+    portainer = Portainer(
+        e["PORTAINER_URL"],
+        e["PORTAINER_ACCESS_TOKEN"],
+        e["PORTAINER_STACK_ID"],
+        e["PORTAINER_ENDPOINT_ID"],
+    )
+    try:
+        deploy(
+            portainer,
+            e["IMAGE_TAG"],
+            lambda versao: motivo_fora_do_ar(e["APP_URL"], versao),
+        )
+    except DeployError as erro:
+        print(f"::error::{erro}")
+        return 1
+    print(f"{e['IMAGE_TAG']} no ar em {e['APP_URL']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

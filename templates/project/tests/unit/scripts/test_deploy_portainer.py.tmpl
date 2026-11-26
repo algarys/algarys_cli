@@ -1,0 +1,249 @@
+import pytest
+from scripts.deploy_portainer import (
+    CONFERIDAS,
+    DeployError,
+    Env,
+    deploy,
+    imagens_sem_tag,
+    trocar_tag,
+    versao_da_tag,
+)
+
+API = "<% .Registro %>-api"
+<%- if .TemFrontend %>
+FRONT = "<% .Registro %>-frontend"
+<%- end %>
+
+
+<% if .TemFrontend -%>
+def test_guard_accepts_both_images_interpolating_image_tag() -> None:
+    arquivo = (
+        f"x-api: &api\n  image: {API}:${{IMAGE_TAG:?defina IMAGE_TAG}}\n"
+        f"services:\n  frontend:\n    image: '{FRONT}:${{IMAGE_TAG}}'\n"
+    )
+
+    assert imagens_sem_tag(arquivo) == []
+
+
+def test_guard_reports_image_pinned_to_a_fixed_tag() -> None:
+    arquivo = f"image: {API}:${{IMAGE_TAG}}\nimage: {FRONT}:sha-1234567\n"
+
+    assert imagens_sem_tag(arquivo) == ["frontend"]
+<%- else -%>
+def test_guard_accepts_api_image_interpolating_image_tag() -> None:
+    arquivo = f"x-api: &api\n  image: '{API}:${{IMAGE_TAG:?defina IMAGE_TAG}}'\n"
+
+    assert imagens_sem_tag(arquivo) == []
+
+
+def test_guard_reports_image_pinned_to_a_fixed_tag() -> None:
+    assert imagens_sem_tag(f"image: {API}:sha-1234567\n") == ["api"]
+<%- end %>
+
+
+def test_swapping_tag_keeps_other_variables_and_returns_previous_tag() -> None:
+    env = [
+        {"name": "POSTGRES_DB", "value": "app"},
+        {"name": "IMAGE_TAG", "value": "sha-aaaaaaa"},
+    ]
+
+    novo, anterior = trocar_tag(env, "sha-bbbbbbb")
+
+    assert novo == [
+        {"name": "POSTGRES_DB", "value": "app"},
+        {"name": "IMAGE_TAG", "value": "sha-bbbbbbb"},
+    ]
+    assert anterior == "sha-aaaaaaa"
+    assert env[1]["value"] == "sha-aaaaaaa"
+
+
+def test_swapping_tag_refuses_stack_without_image_tag() -> None:
+    with pytest.raises(DeployError, match="sem IMAGE_TAG"):
+        trocar_tag([{"name": "LOG_LEVEL", "value": "INFO"}], "sha-bbbbbbb")
+
+
+def test_expected_version_is_the_commit_sha_in_the_tag() -> None:
+    assert versao_da_tag("sha-1a2b3c4") == "1a2b3c4"
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["homolog", "latest", "sha-", "sha-XYZ1234", "", "sha-1a2b3c4d", "sha-" + "a" * 40],
+)
+def test_rejects_tags_that_are_not_the_short_sha_reported_by_health(tag: str) -> None:
+    with pytest.raises(DeployError, match="sha-"):
+        versao_da_tag(tag)
+
+
+<% if .TemFrontend -%>
+ARQUIVO = f"image: {API}:${{IMAGE_TAG}}\nimage: {FRONT}:${{IMAGE_TAG}}\n"
+SEM_TAG = f"image: {API}:${{IMAGE_TAG}}\n"
+FALTANDO = "frontend"
+<%- else -%>
+ARQUIVO = f"image: {API}:${{IMAGE_TAG}}\n"
+SEM_TAG = f"image: {API}:latest\n"
+FALTANDO = "api"
+<%- end %>
+
+
+class FakePortainer:
+    def __init__(
+        self,
+        arquivo: str = ARQUIVO,
+        tag: str | None = "sha-aaaaaaa",
+        falhas_no_put: int = 0,
+    ):
+        self._arquivo = arquivo
+        self._falhas_no_put = falhas_no_put
+        self._env = [{"name": "LOG_LEVEL", "value": "INFO"}]
+        if tag is not None:
+            self._env.append({"name": "IMAGE_TAG", "value": tag})
+        self.tags_enviadas: list[str | None] = []
+
+    def env(self) -> Env:
+        return self._env
+
+    def arquivo(self) -> str:
+        return self._arquivo
+
+    def atualizar(self, arquivo: str, env: Env) -> None:
+        assert arquivo == self._arquivo
+        self.tags_enviadas.append(_tag(env))
+        if self._falhas_no_put:
+            self._falhas_no_put -= 1
+            raise DeployError("Portainer respondeu 500 em PUT")
+        self._env = env
+
+    def tag_no_ar(self) -> str | None:
+        return _tag(self._env)
+
+
+def _tag(env: Env) -> str | None:
+    return next((v["value"] for v in env if v["name"] == "IMAGE_TAG"), None)
+
+
+class Relogio:
+    def __init__(self) -> None:
+        self.agora = 0.0
+
+    def __call__(self) -> float:
+        return self.agora
+
+    def dormir(self, segundos: float) -> None:
+        self.agora += segundos
+
+
+def test_deploy_swaps_only_image_tag_and_returns_once_new_version_answers() -> None:
+    portainer = FakePortainer()
+    relogio = Relogio()
+
+    deploy(
+        portainer,
+        "sha-bbbbbbb",
+        lambda versao: (
+            None if portainer.tag_no_ar() == f"sha-{versao}" else "versão antiga"
+        ),
+        relogio=relogio,
+        dormir=relogio.dormir,
+    )
+
+    assert portainer.tags_enviadas == ["sha-bbbbbbb"]
+    assert portainer.env() == [
+        {"name": "LOG_LEVEL", "value": "INFO"},
+        {"name": "IMAGE_TAG", "value": "sha-bbbbbbb"},
+    ]
+
+
+def test_deploy_reverts_to_previous_tag_when_new_version_never_answers() -> None:
+    portainer = FakePortainer()
+    relogio = Relogio()
+
+    with pytest.raises(DeployError, match="revertida para sha-aaaaaaa"):
+        deploy(
+            portainer,
+            "sha-bbbbbbb",
+            lambda versao: "versão antiga",
+            relogio=relogio,
+            dormir=relogio.dormir,
+        )
+
+    assert portainer.tags_enviadas == ["sha-bbbbbbb", "sha-aaaaaaa"]
+    assert relogio.agora >= 180
+
+
+def test_timeout_error_names_the_last_reason_the_version_was_not_live() -> None:
+    portainer = FakePortainer()
+    relogio = Relogio()
+
+    def fora_do_ar(versao: str) -> str:
+        if relogio.agora < 100:
+            return "/health inacessível: timed out"
+        return "HTTP 403 em /health: error code: 1010"
+
+    with pytest.raises(DeployError) as erro:
+        deploy(
+            portainer,
+            "sha-bbbbbbb",
+            fora_do_ar,
+            relogio=relogio,
+            dormir=relogio.dormir,
+        )
+
+    assert str(erro.value) == (
+        f"bbbbbbb não apareceu em {CONFERIDAS} em 180s"
+        " (último motivo: HTTP 403 em /health: error code: 1010);"
+        " stack revertida para sha-aaaaaaa"
+    )
+    assert portainer.tags_enviadas == ["sha-bbbbbbb", "sha-aaaaaaa"]
+
+
+def test_only_none_means_live_so_an_empty_reason_still_reverts() -> None:
+    portainer = FakePortainer()
+    relogio = Relogio()
+
+    with pytest.raises(DeployError, match="revertida para sha-aaaaaaa"):
+        deploy(
+            portainer,
+            "sha-bbbbbbb",
+            lambda versao: "",
+            relogio=relogio,
+            dormir=relogio.dormir,
+        )
+
+    assert portainer.tags_enviadas == ["sha-bbbbbbb", "sha-aaaaaaa"]
+
+
+def test_deploy_reverts_when_portainer_rejects_the_update() -> None:
+    portainer = FakePortainer(falhas_no_put=1)
+
+    with pytest.raises(DeployError, match="500 em PUT; stack revertida para sha-aaa"):
+        deploy(portainer, "sha-bbbbbbb", lambda versao: None)
+
+    assert portainer.tags_enviadas == ["sha-bbbbbbb", "sha-aaaaaaa"]
+
+
+def test_deploy_touches_nothing_when_an_image_does_not_use_image_tag() -> None:
+    portainer = FakePortainer(arquivo=SEM_TAG)
+
+    with pytest.raises(DeployError, match=f"imagem de: {FALTANDO}$"):
+        deploy(portainer, "sha-bbbbbbb", lambda versao: None)
+
+    assert portainer.tags_enviadas == []
+
+
+def test_deploy_touches_nothing_when_stack_has_no_image_tag_to_revert_to() -> None:
+    portainer = FakePortainer(tag=None)
+
+    with pytest.raises(DeployError, match="sem IMAGE_TAG"):
+        deploy(portainer, "sha-bbbbbbb", lambda versao: None)
+
+    assert portainer.tags_enviadas == []
+
+
+def test_deploy_reports_when_the_revert_itself_fails() -> None:
+    portainer = FakePortainer(falhas_no_put=2)
+
+    with pytest.raises(DeployError, match="a reversão para sha-aaaaaaa falhou"):
+        deploy(portainer, "sha-bbbbbbb", lambda versao: None)
+
+    assert portainer.tags_enviadas == ["sha-bbbbbbb", "sha-aaaaaaa"]
