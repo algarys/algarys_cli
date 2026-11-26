@@ -1,0 +1,43 @@
+name: Enforce dev as main source
+
+on:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+jobs:
+  only-dev-source:
+    name: only-dev-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate source branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${BASE_REF}" != "main" ]]; then
+            echo "Unexpected base branch: ${BASE_REF}"
+            exit 1
+          fi
+
+          if [[ "${HEAD_REPOSITORY}" != "${CURRENT_REPOSITORY}" ]] || [[ "${HEAD_REF}" != "dev" && "${HEAD_REF}" != hotfix/* ]]; then
+            echo "Only dev or hotfix/* branches from this repository may be merged into main."
+            echo "Received: ${HEAD_REPOSITORY}:${HEAD_REF}"
+            exit 1
+          fi
+
+          echo "Validated source: ${HEAD_REPOSITORY}:${HEAD_REF} -> ${CURRENT_REPOSITORY}:main"
