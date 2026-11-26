@@ -767,8 +767,11 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 concurrency = ["greenlet", "thread"]
-source = ["app"]
+source = ["app", "scripts"]
 omit = [
+    # Sem teste do main: só o deploy_portainer.py entra na cobertura.
+    "scripts/gerar_contrato.py",
+    "scripts/verificar_stack.py",
     "app/__main__.py",
     "app/ia/*",
     "app/shared/contracts/base.py",
