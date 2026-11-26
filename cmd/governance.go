@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -64,89 +62,6 @@ func initUV(projectName string) error {
 	}
 	return nil
 }
-
-func createGovernanceFiles(projectName string) error {
-	workflowDir := filepath.Join(projectName, ".github", "workflows")
-	if err := os.MkdirAll(workflowDir, 0755); err != nil {
-		return fmt.Errorf("criar diretório de workflows: %w", err)
-	}
-
-	files := map[string]string{
-		filepath.Join(workflowDir, "enforce-dev-source-to-main.yml"):      devSourceWorkflow,
-		filepath.Join(projectName, ".github", "pull_request_template.md"): pullRequestTemplate,
-	}
-	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			return fmt.Errorf("escrever %s: %w", path, err)
-		}
-	}
-	return nil
-}
-
-const devSourceWorkflow = `name: Enforce dev as main source
-
-on:
-  pull_request_target:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-
-permissions:
-  contents: read
-
-jobs:
-  only-dev-source:
-    name: only-dev-source
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Validate source branch
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          CURRENT_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          if [[ "${BASE_REF}" != "main" ]]; then
-            echo "Unexpected base branch: ${BASE_REF}"
-            exit 1
-          fi
-
-          if [[ "${HEAD_REF}" != "dev" || "${HEAD_REPOSITORY}" != "${CURRENT_REPOSITORY}" ]]; then
-            echo "Only the dev branch from this repository may be merged into main."
-            echo "Received: ${HEAD_REPOSITORY}:${HEAD_REF}"
-            exit 1
-          fi
-
-          echo "Validated source: ${HEAD_REPOSITORY}:${HEAD_REF} -> ${CURRENT_REPOSITORY}:main"
-`
-
-const pullRequestTemplate = `## O que foi feito
-
-<!-- Descreva objetivamente a mudança. -->
-
-## Por que
-
-<!-- Explique o contexto, a motivação e a issue/tarefa relacionada. -->
-
-## Como testar
-
-<!-- Liste os comandos e cenários usados na validação. -->
-
-## Checklist
-
-- [ ] Testes unitários passando
-- [ ] Testes de integração executados, quando aplicável
-- [ ] Lint e formatação sem erros
-- [ ] Documentação atualizada, quando aplicável
-- [ ] PR com menos de 1000 linhas, desconsiderando testes e Markdown
-`
 
 func createGitHubRepo(projectName, description, org string) error {
 	if _, err := runCommand(projectName, "", "gh", "auth", "status"); err != nil {

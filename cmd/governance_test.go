@@ -23,53 +23,6 @@ func replaceCommandRunner(t *testing.T, runner commandExecutor) {
 	t.Cleanup(func() { runCommand = previous })
 }
 
-func TestCreateGovernanceFiles(t *testing.T) {
-	projectDir := filepath.Join(t.TempDir(), "project")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := createGovernanceFiles(projectDir); err != nil {
-		t.Fatalf("createGovernanceFiles() error = %v", err)
-	}
-
-	workflowPath := filepath.Join(projectDir, ".github", "workflows", "enforce-dev-source-to-main.yml")
-	workflow, err := os.ReadFile(workflowPath)
-	if err != nil {
-		t.Fatalf("ler workflow: %v", err)
-	}
-	workflowText := string(workflow)
-	for _, expected := range []string{
-		"pull_request_target",
-		"HEAD_REPOSITORY",
-		"CURRENT_REPOSITORY",
-		"Only the dev branch from this repository",
-	} {
-		if !strings.Contains(workflowText, expected) {
-			t.Errorf("workflow não contém %q", expected)
-		}
-	}
-	if strings.Contains(workflowText, "actions/checkout") {
-		t.Error("workflow não deve fazer checkout do código da origem")
-	}
-
-	templatePath := filepath.Join(projectDir, ".github", "pull_request_template.md")
-	template, err := os.ReadFile(templatePath)
-	if err != nil {
-		t.Fatalf("ler template de PR: %v", err)
-	}
-	for _, expected := range []string{
-		"## O que foi feito",
-		"## Por que",
-		"## Como testar",
-		"## Checklist",
-	} {
-		if !strings.Contains(string(template), expected) {
-			t.Errorf("template de PR não contém %q", expected)
-		}
-	}
-}
-
 func TestInitLocalGitCreatesDevAfterInitialCommit(t *testing.T) {
 	var calls []recordedCommand
 	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {

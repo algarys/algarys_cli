@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/algarys/algarys_cli/cmd/ui"
+	"github.com/algarys/algarys_cli/templates"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -145,26 +146,7 @@ func runInit(cmd *cobra.Command, args []string) {
 	}
 
 	// Executar etapas com spinners
-	steps := []struct {
-		icon    string
-		message string
-		action  func() error
-	}{
-		{ui.IconFolder, "Criando estrutura de diretórios", func() error {
-			createProjectStructure(config.Name, moduleName)
-			return nil
-		}},
-		{ui.IconFile, "Gerando arquivos de configuração", func() error {
-			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-			return createGovernanceFiles(config.Name)
-		}},
-		{ui.IconGit, "Inicializando repositório Git", func() error {
-			return initLocalGit(config.Name)
-		}},
-		{ui.IconPython, "Configurando ambiente UV", func() error {
-			return initUV(config.Name)
-		}},
-	}
+	steps := projectSteps(config, moduleName)
 	for _, step := range steps {
 		spinner := ui.NewSpinner(step.icon + "  " + step.message)
 		spinner.Start()
@@ -262,6 +244,32 @@ func runInit(cmd *cobra.Command, args []string) {
 		PaddingLeft(2)
 	fmt.Println(tipStyle.Render(fmt.Sprintf("%s Dica: use 'algarys --help' para ver outros comandos", ui.IconMagic)))
 	fmt.Println()
+}
+
+type initStep struct {
+	icon    string
+	message string
+	action  func() error
+}
+
+func projectSteps(config ProjectConfig, moduleName string) []initStep {
+	return []initStep{
+		{ui.IconFolder, "Criando estrutura de diretórios", func() error {
+			createProjectStructure(config.Name, moduleName)
+			return nil
+		}},
+		{ui.IconFile, "Gerando arquivos de configuração", func() error {
+			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
+			return templates.RenderProject(config.Name, templates.NewData(config.Name, false))
+		}},
+		// Antes do Git, para o uv.lock entrar no commit inicial.
+		{ui.IconPython, "Configurando ambiente UV", func() error {
+			return initUV(config.Name)
+		}},
+		{ui.IconGit, "Inicializando repositório Git", func() error {
+			return initLocalGit(config.Name)
+		}},
+	}
 }
 
 func createProjectStructure(projectName, moduleName string) {

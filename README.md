@@ -151,8 +151,9 @@ feature/* → dev → main
 ```
 
 A branch `dev` é a integração e exige aprovação em Pull Requests. A branch
-`main` é a fonte de verdade e release; somente PRs originados de `dev` podem
-ser mesclados, validados pelo workflow `Enforce dev as main source`.
+`main` é a fonte de verdade e release; só PRs originados de `dev` ou de
+`hotfix/*` do próprio repositório podem ser mesclados, validados pelo workflow
+`Enforce dev as main source`.
 
 ## Desenvolvimento
 
