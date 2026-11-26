@@ -1,0 +1,80 @@
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from loguru import logger
+
+from app.core import logging as app_logging
+from app.core.settings import settings
+
+LEVELS = ("debug", "info", "warning", "error")
+
+
+@pytest.fixture
+def logs_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Path]:
+    monkeypatch.setattr(app_logging, "LOGS_DIR", tmp_path)
+    yield tmp_path
+    logger.remove()
+    logger.add(sys.stderr)
+
+
+def _read(logs_dir: Path, sub: str) -> str:
+    return (logs_dir / sub / "app.log").read_text(encoding="utf-8")
+
+
+def _emit_one_per_level() -> None:
+    for lvl in LEVELS:
+        getattr(logger, lvl)(f"msg-{lvl}")
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        logger.exception("msg-exception")
+    logger.remove()
+
+
+def test_creates_a_directory_per_level(logs_dir: Path) -> None:
+    app_logging.setup_logging()
+
+    for sub in (*LEVELS, "exception"):
+        assert (logs_dir / sub).is_dir()
+
+
+@pytest.mark.parametrize("lvl", LEVELS)
+def test_each_level_file_keeps_only_its_level(logs_dir: Path, lvl: str) -> None:
+    app_logging.setup_logging()
+
+    _emit_one_per_level()
+
+    content = _read(logs_dir, lvl)
+    assert f"msg-{lvl}" in content
+    for other in LEVELS:
+        if other != lvl:
+            assert f"msg-{other}" not in content
+
+
+def test_exception_file_keeps_only_records_with_traceback(logs_dir: Path) -> None:
+    app_logging.setup_logging()
+
+    _emit_one_per_level()
+
+    content = _read(logs_dir, "exception")
+    assert "msg-exception" in content
+    assert "RuntimeError: boom" in content
+    assert "msg-error" not in content
+
+
+def test_console_respects_configured_level(
+    logs_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(settings, "log_level", "warning")
+    app_logging.setup_logging()
+
+    logger.info("msg-info")
+    logger.warning("msg-warning")
+
+    out = capsys.readouterr().out
+    assert "msg-warning" in out
+    assert "msg-info" not in out

@@ -1,0 +1,61 @@
+# Modelo da stack do Portainer: a que vale é a do editor web (ADR-0001).
+name: <% .Projeto %>
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-api: &api
+  image: <% .Registro %>-api:${IMAGE_TAG:?defina IMAGE_TAG nas variáveis da stack}
+  env_file: stack.env
+  environment:
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?defina POSTGRES_USER nas variáveis da stack}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD nas variáveis da stack}@db:5432/${POSTGRES_DB:?defina POSTGRES_DB nas variáveis da stack}
+  logging: *logging
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER nas variáveis da stack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD nas variáveis da stack}
+      POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB nas variáveis da stack}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging: *logging
+
+  migrate:
+    <<: *api
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # O healthcheck em /health vem do HEALTHCHECK da imagem. Sem front, a api
+  # entra na rede do proxy reverso.
+  api:
+    <<: *api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - default
+      - nginx-proxy-manager_default
+
+networks:
+  nginx-proxy-manager_default:
+    external: true
+
+volumes:
+  pgdata:

@@ -1,0 +1,30 @@
+from collections.abc import Iterator
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.presentation.http.app import app
+from app.core.settings import Settings, get_settings
+
+
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def test_health_reports_dev_version_by_default(client: TestClient) -> None:
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "version": "dev"}
+
+
+def test_health_reports_git_sha_from_env(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GIT_SHA", "abc1234")
+
+    assert client.get("/health").json() == {"status": "ok", "version": "abc1234"}

@@ -20,10 +20,11 @@ const (
 const leftDelim, rightDelim = "<%", "%>"
 
 type Data struct {
-	Projeto     string
-	Repositorio string
-	Registro    string
-	TemFrontend bool
+	Projeto       string
+	Repositorio   string
+	Registro      string
+	PythonVersion string
+	TemFrontend   bool
 }
 
 // conditionalDirs lista diretórios que só são gerados quando a condição vale.
@@ -34,10 +35,11 @@ var conditionalDirs = map[string]func(Data) bool{
 func NewData(projeto string, temFrontend bool) Data {
 	repositorio := "algarys_" + projeto
 	return Data{
-		Projeto:     projeto,
-		Repositorio: repositorio,
-		Registro:    "ghcr.io/algarys/" + repositorio,
-		TemFrontend: temFrontend,
+		Projeto:       projeto,
+		Repositorio:   repositorio,
+		Registro:      "ghcr.io/algarys/" + repositorio,
+		PythonVersion: "3.12",
+		TemFrontend:   temFrontend,
 	}
 }
 

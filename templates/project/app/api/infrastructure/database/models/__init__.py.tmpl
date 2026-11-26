@@ -1,0 +1,10 @@
+import importlib
+import pkgutil
+
+from app.api.infrastructure.database.models.base import Base
+
+# Importa todo módulo deste pacote para o autogenerate do Alembic ver as tabelas.
+for _modulo in pkgutil.iter_modules(__path__):
+    importlib.import_module(f"{__name__}.{_modulo.name}")
+
+__all__ = ["Base"]

@@ -260,7 +260,9 @@ func projectSteps(config ProjectConfig, moduleName string) []initStep {
 		}},
 		{ui.IconFile, "Gerando arquivos de configuração", func() error {
 			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-			return templates.RenderProject(config.Name, templates.NewData(config.Name, false))
+			data := templates.NewData(config.Name, false)
+			data.PythonVersion = config.PythonVersion
+			return templates.RenderProject(config.Name, data)
 		}},
 		// Antes do Git, para o uv.lock entrar no commit inicial.
 		{ui.IconPython, "Configurando ambiente UV", func() error {
@@ -473,6 +475,7 @@ class Settings(BaseSettings):
 
     # API
     cors_origins: str = "*"
+    git_sha: str = "dev"
 
     # Logging
     log_level: str = "INFO"
@@ -624,19 +627,26 @@ class Runnable(Protocol):
 
 	healthRoute := `"""Rota de healthcheck."""
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from app.core.settings import Settings, get_settings
 
 router = APIRouter(prefix="/health", tags=["health"])
 
 
 class HealthResponse(BaseModel):
     status: str
+    version: str
 
 
 @router.get("", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    return HealthResponse(status="ok")
+async def health(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HealthResponse:
+    return HealthResponse(status="ok", version=settings.git_sha)
 `
 	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "routes", "health.py"), []byte(healthRoute), 0644)
 
@@ -700,6 +710,9 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "loguru>=0.7.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.31.0",
+    "alembic>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -738,6 +751,9 @@ src = ["app", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
 [tool.mypy]
 python_version = "%s"
 strict = true
@@ -748,6 +764,22 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]
+source = ["app"]
+omit = [
+    "app/__main__.py",
+    "app/ia/*",
+    "app/shared/contracts/base.py",
+    "app/api/application/interfaces/repository.py",
+    "app/api/domain/entities/base.py",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = ['if __name__ == "__main__":']
 `, projectName, description, pythonVersion, projectName, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "pyproject.toml"), []byte(pyproject), 0644)
@@ -842,7 +874,7 @@ TEMPORAL_HOST=localhost:7233
 TEMPORAL_NAMESPACE=default
 
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/db
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/db
 
 # CORS — use "*" para liberar tudo (dev) ou lista separada por vírgula (prod)
 # Exemplo prod: CORS_ORIGINS=https://app.algarys.com.br,https://admin.algarys.com.br
