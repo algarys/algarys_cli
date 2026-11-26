@@ -1,0 +1,24 @@
+from app.core.exceptions import AppError, NotFoundError, ValidationError
+
+
+def test_app_error_defaults_to_internal_error() -> None:
+    error = AppError("falhou")
+
+    assert (error.message, error.code, str(error)) == (
+        "falhou",
+        "INTERNAL_ERROR",
+        "falhou",
+    )
+
+
+def test_not_found_error_names_resource_and_id() -> None:
+    error = NotFoundError("Paciente", "42")
+
+    assert error.message == "Paciente '42' não encontrado."
+    assert error.code == "NOT_FOUND"
+
+
+def test_validation_error_has_its_code() -> None:
+    error = ValidationError("telefone inválido")
+
+    assert (error.message, error.code) == ("telefone inválido", "VALIDATION_ERROR")

@@ -76,3 +76,19 @@ func TestGeneratedProjectDependsOnPostgresAndAlembic(t *testing.T) {
 		t.Errorf(".env.example deveria usar o driver asyncpg:\n%s", envExample)
 	}
 }
+
+func TestGeneratedProjectRequiresFullCoverage(t *testing.T) {
+	pyproject := generatedConfigFile(t, "pyproject.toml")
+	for _, expected := range []string{
+		"[tool.coverage.report]\nfail_under = 100",
+		`"app/__main__.py"`,
+		`"app/ia/*"`,
+		`"app/shared/contracts/base.py"`,
+		`"app/api/application/interfaces/repository.py"`,
+		`"app/api/domain/entities/base.py"`,
+	} {
+		if !strings.Contains(pyproject, expected) {
+			t.Errorf("pyproject.toml não contém %q", expected)
+		}
+	}
+}

@@ -762,6 +762,22 @@ warn_unused_ignores = true
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+concurrency = ["greenlet", "thread"]
+source = ["app"]
+omit = [
+    "app/__main__.py",
+    "app/ia/*",
+    "app/shared/contracts/base.py",
+    "app/api/application/interfaces/repository.py",
+    "app/api/domain/entities/base.py",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = ['if __name__ == "__main__":']
 `, projectName, description, pythonVersion, projectName, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "pyproject.toml"), []byte(pyproject), 0644)

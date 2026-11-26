@@ -1,0 +1,12 @@
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.api.infrastructure.database.models.base import Base
+
+
+def test_models_declared_on_base_join_the_alembic_metadata() -> None:
+    class Exemplo(Base):
+        __tablename__ = "exemplo_teste_base"
+
+        id: Mapped[int] = mapped_column(primary_key=True)
+
+    assert "exemplo_teste_base" in Base.metadata.tables
