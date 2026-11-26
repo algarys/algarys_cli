@@ -1,0 +1,17 @@
+"""Gera o openapi.json versionado na raiz do repositório a partir da app FastAPI."""
+
+import json
+from pathlib import Path
+
+from app.api.presentation.http.app import app
+
+DESTINO = Path(__file__).resolve().parent.parent / "openapi.json"
+
+
+def main() -> None:
+    contrato = json.dumps(app.openapi(), indent=2, ensure_ascii=False)
+    DESTINO.write_text(contrato + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

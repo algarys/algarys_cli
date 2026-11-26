@@ -60,6 +60,9 @@ func initUV(projectName string) error {
 	if _, err := runCommand(projectName, "", "uv", "sync"); err != nil {
 		return fmt.Errorf("uv sync: %w", err)
 	}
+	if _, err := runCommand(projectName, "", "uv", "run", "python", "scripts/gerar_contrato.py"); err != nil {
+		return fmt.Errorf("gerar openapi.json: %w", err)
+	}
 	return nil
 }
 
