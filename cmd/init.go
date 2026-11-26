@@ -262,11 +262,12 @@ func projectSteps(config ProjectConfig, moduleName string) []initStep {
 			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
 			return templates.RenderProject(config.Name, templates.NewData(config.Name, false))
 		}},
-		{ui.IconGit, "Inicializando repositório Git", func() error {
-			return initLocalGit(config.Name)
-		}},
+		// Antes do Git, para o uv.lock entrar no commit inicial.
 		{ui.IconPython, "Configurando ambiente UV", func() error {
 			return initUV(config.Name)
+		}},
+		{ui.IconGit, "Inicializando repositório Git", func() error {
+			return initLocalGit(config.Name)
 		}},
 	}
 }
