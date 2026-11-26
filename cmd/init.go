@@ -473,6 +473,7 @@ class Settings(BaseSettings):
 
     # API
     cors_origins: str = "*"
+    git_sha: str = "dev"
 
     # Logging
     log_level: str = "INFO"
@@ -624,19 +625,26 @@ class Runnable(Protocol):
 
 	healthRoute := `"""Rota de healthcheck."""
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from app.core.settings import Settings, get_settings
 
 router = APIRouter(prefix="/health", tags=["health"])
 
 
 class HealthResponse(BaseModel):
     status: str
+    version: str
 
 
 @router.get("", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    return HealthResponse(status="ok")
+async def health(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> HealthResponse:
+    return HealthResponse(status="ok", version=settings.git_sha)
 `
 	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "routes", "health.py"), []byte(healthRoute), 0644)
 
