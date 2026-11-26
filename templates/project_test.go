@@ -2,6 +2,7 @@ package templates
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,5 +94,24 @@ func TestRenderProjectGeneratesDockerfile(t *testing.T) {
 	)
 	assertContains(t, ".dockerignore", readFile(t, filepath.Join(dest, ".dockerignore")),
 		".env", "tests", "stack.env*",
+	)
+}
+
+func TestRenderProjectGeneratesAsyncAlembic(t *testing.T) {
+	dest := renderDefault(t)
+
+	assertContains(t, "alembic.ini", readFile(t, filepath.Join(dest, "alembic.ini")),
+		"script_location = %(here)s/alembic",
+	)
+	assertContains(t, "alembic/env.py", readFile(t, filepath.Join(dest, "alembic", "env.py")),
+		"settings.database_url",
+		"async_engine_from_config",
+		"target_metadata = Base.metadata",
+	)
+	if info, err := os.Stat(filepath.Join(dest, "alembic", "versions")); err != nil || !info.IsDir() {
+		t.Errorf("alembic/versions deveria existir: %v", err)
+	}
+	assertContains(t, "Dockerfile", readFile(t, filepath.Join(dest, "Dockerfile")),
+		"COPY alembic.ini ./", "COPY alembic ./alembic",
 	)
 }

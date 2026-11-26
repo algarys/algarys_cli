@@ -700,6 +700,9 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
     "loguru>=0.7.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.31.0",
+    "alembic>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -737,6 +740,9 @@ src = ["app", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
 
 [tool.mypy]
 python_version = "%s"
@@ -842,7 +848,7 @@ TEMPORAL_HOST=localhost:7233
 TEMPORAL_NAMESPACE=default
 
 # Database
-DATABASE_URL=postgresql://user:pass@localhost:5432/db
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/db
 
 # CORS — use "*" para liberar tudo (dev) ou lista separada por vírgula (prod)
 # Exemplo prod: CORS_ORIGINS=https://app.algarys.com.br,https://admin.algarys.com.br
