@@ -83,6 +83,8 @@ func TestGeneratedProjectRequiresFullCoverage(t *testing.T) {
 	pyproject := generatedConfigFile(t, "pyproject.toml")
 	for _, expected := range []string{
 		"[tool.coverage.report]\nfail_under = 100",
+		`source = ["app", "scripts"]`,
+		`"scripts/verificar_stack.py"`,
 		`"app/__main__.py"`,
 		`"app/ia/*"`,
 		`"app/shared/contracts/base.py"`,

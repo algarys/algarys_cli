@@ -67,7 +67,7 @@ jobs:
           fi
 
       - name: Testes (cobertura de 100%)
-        run: uv run pytest tests --cov=app
+        run: uv run pytest tests --cov
 
   stack:
     runs-on: ubuntu-latest

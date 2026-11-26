@@ -163,7 +163,7 @@ func TestRenderProjectGeneratesCI(t *testing.T) {
 		"uv run alembic check",
 		"uv run python scripts/gerar_contrato.py",
 		`git status --porcelain -- openapi.json`,
-		"uv run pytest tests --cov=app",
+		"uv run pytest tests --cov\n",
 		"docker compose -f docker-compose.prod.yml --env-file stack.env.example config -q",
 		"uv run --frozen python scripts/verificar_stack.py",
 		"needs: [back, stack]",
@@ -178,6 +178,37 @@ func TestRenderProjectGeneratesCI(t *testing.T) {
 	for _, forbidden := range []string{"front", "<%"} {
 		if strings.Contains(ci, forbidden) {
 			t.Errorf("ci.yml não deveria conter %q", forbidden)
+		}
+	}
+}
+
+func TestRenderProjectGeneratesPortainerDeployScript(t *testing.T) {
+	casos := map[bool][]string{
+		false: {`IMAGENS = ("api",)`, `HEALTH = "/health"`},
+		true:  {`IMAGENS = ("api", "frontend")`, `HEALTH = "/api/health"`, `"/version.txt"`},
+	}
+	for temFrontend, esperado := range casos {
+		dest := t.TempDir()
+		if err := RenderProject(dest, NewData("meu-projeto", temFrontend)); err != nil {
+			t.Fatalf("RenderProject() error = %v", err)
+		}
+		script := readFile(t, filepath.Join(dest, "scripts", "deploy_portainer.py"))
+		assertContains(t, "deploy_portainer.py", script, append(esperado,
+			`USER_AGENT = "meu-projeto-deploy/1.0"`,
+			`"pullImage": True`,
+			"PRAZO_SEGUNDOS = 180",
+		)...)
+		if !temFrontend && strings.Contains(script, "version.txt") {
+			t.Error("deploy_portainer.py sem front não deveria conferir /version.txt")
+		}
+		for _, teste := range []string{
+			filepath.Join("tests", "unit", "scripts", "test_deploy_portainer.py"),
+			filepath.Join("tests", "integration", "scripts", "test_deploy_portainer_http.py"),
+			filepath.Join("tests", "integration", "scripts", "__init__.py"),
+		} {
+			if _, err := os.Stat(filepath.Join(dest, teste)); err != nil {
+				t.Errorf("%s deveria existir: %v", teste, err)
+			}
 		}
 	}
 }
