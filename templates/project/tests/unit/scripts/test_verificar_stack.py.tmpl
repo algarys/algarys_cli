@@ -1,0 +1,44 @@
+from scripts.verificar_stack import problemas
+
+
+def test_reports_compose_variable_missing_from_env_example() -> None:
+    compose_bruto = "image: api:${IMAGE_TAG}\nx: ${POSTGRES_DB:?defina}\n"
+
+    resultado = problemas(compose_bruto, {}, "IMAGE_TAG=\n", set())
+
+    assert resultado == [
+        "POSTGRES_DB é usada no compose mas falta no stack.env.example"
+    ]
+
+
+def test_reports_env_example_variable_used_by_neither_compose_nor_settings() -> None:
+    env_exemplo = "IMAGE_TAG=\n# API\nLOG_LEVEL=\nANTIGA=\n"
+
+    resultado = problemas("image: api:${IMAGE_TAG}", {}, env_exemplo, {"LOG_LEVEL"})
+
+    assert resultado == [
+        "ANTIGA sobra no stack.env.example: não aparece no compose nem em Settings"
+    ]
+
+
+def test_reports_services_that_publish_ports() -> None:
+    compose = {
+        "services": {
+            "frontend": {"ports": [{"target": 80, "published": "8080"}]},
+            "api": {"expose": ["8000"]},
+            "db": {"ports": [{"target": 5432, "published": "5432"}]},
+        }
+    }
+
+    resultado = problemas("", compose, "", set())
+
+    assert resultado == [
+        "o serviço db publica porta no host",
+        "o serviço frontend publica porta no host",
+    ]
+
+
+def test_ignores_escaped_dollar_references() -> None:
+    compose_bruto = 'test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]'
+
+    assert problemas(compose_bruto, {}, "", set()) == []

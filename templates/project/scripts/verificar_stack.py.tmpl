@@ -1,0 +1,74 @@
+"""Confere o docker-compose.prod.yml contra o stack.env.example e as portas."""
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+from app.core.settings import Settings
+
+RAIZ = Path(__file__).resolve().parent.parent
+COMPOSE = RAIZ / "docker-compose.prod.yml"
+ENV_EXEMPLO = RAIZ / "stack.env.example"
+
+_INTERPOLACAO = re.compile(r"(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)")
+_CHAVE_ENV = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", re.MULTILINE)
+
+
+def problemas(
+    compose_bruto: str,
+    compose: dict[str, Any],
+    env_exemplo: str,
+    campos_settings: set[str],
+) -> list[str]:
+    no_compose = set(_INTERPOLACAO.findall(compose_bruto))
+    no_exemplo = set(_CHAVE_ENV.findall(env_exemplo))
+    return (
+        [
+            f"{var} é usada no compose mas falta no stack.env.example"
+            for var in sorted(no_compose - no_exemplo)
+        ]
+        + [
+            f"{var} sobra no stack.env.example: não aparece no compose nem em Settings"
+            for var in sorted(no_exemplo - no_compose - campos_settings)
+        ]
+        + [
+            f"o serviço {nome} publica porta no host"
+            for nome, servico in sorted(compose.get("services", {}).items())
+            if servico.get("ports")
+        ]
+    )
+
+
+def main() -> int:
+    resolvido = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE),
+            "--env-file",
+            str(ENV_EXEMPLO),
+            "config",
+            "--format",
+            "json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    encontrados = problemas(
+        COMPOSE.read_text(encoding="utf-8"),
+        json.loads(resolvido),
+        ENV_EXEMPLO.read_text(encoding="utf-8"),
+        {campo.upper() for campo in Settings.model_fields},
+    )
+    for problema in encontrados:
+        print(problema, file=sys.stderr)
+    return 1 if encontrados else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -115,3 +115,30 @@ func TestRenderProjectGeneratesAsyncAlembic(t *testing.T) {
 		"COPY alembic.ini ./", "COPY alembic ./alembic",
 	)
 }
+
+func TestRenderProjectGeneratesProductionStack(t *testing.T) {
+	dest := renderDefault(t)
+	compose := readFile(t, filepath.Join(dest, "docker-compose.prod.yml"))
+
+	assertContains(t, "docker-compose.prod.yml", compose,
+		"name: meu-projeto",
+		"image: ghcr.io/algarys/algarys_meu-projeto-api:${IMAGE_TAG:?",
+		"image: postgres:17-alpine",
+		`command: ["alembic", "upgrade", "head"]`,
+		"condition: service_completed_successfully",
+		"driver: json-file",
+		"nginx-proxy-manager_default:\n    external: true",
+	)
+	for _, forbidden := range []string{"ports:", "temporal", "frontend"} {
+		if strings.Contains(compose, forbidden) {
+			t.Errorf("docker-compose.prod.yml não deveria conter %q", forbidden)
+		}
+	}
+
+	assertContains(t, "stack.env.example", readFile(t, filepath.Join(dest, "stack.env.example")),
+		"IMAGE_TAG=", "POSTGRES_USER=", "POSTGRES_PASSWORD=", "POSTGRES_DB=",
+	)
+	assertContains(t, "scripts/verificar_stack.py", readFile(t, filepath.Join(dest, "scripts", "verificar_stack.py")),
+		"def problemas(", "publica porta no host",
+	)
+}
