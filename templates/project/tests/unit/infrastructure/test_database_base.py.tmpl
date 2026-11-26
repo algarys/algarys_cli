@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.api.infrastructure.database.models.base import Base
+from app.api.infrastructure.database.models import Base
 
 
 def test_models_declared_on_base_join_the_alembic_metadata() -> None:
