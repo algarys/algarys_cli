@@ -41,7 +41,7 @@ Ruleset `Protect main`:
 - exige Pull Request;
 - não exige aprovação para PRs de `dev`;
 - exige o check do workflow que valida a origem do PR;
-- bloqueia qualquer origem diferente de `dev`;
+- bloqueia qualquer origem diferente de `dev` ou `hotfix/*` do próprio repositório;
 - mantém o histórico linear atualmente utilizado;
 - não possui bypass actors.
 
