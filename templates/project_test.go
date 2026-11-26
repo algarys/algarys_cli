@@ -162,7 +162,7 @@ func TestRenderProjectGeneratesCI(t *testing.T) {
 		"uv run alembic upgrade head",
 		"uv run alembic check",
 		"uv run python scripts/gerar_contrato.py",
-		"git diff --exit-code -- openapi.json",
+		`git status --porcelain -- openapi.json`,
 		"uv run pytest tests --cov=app",
 		"docker compose -f docker-compose.prod.yml --env-file stack.env.example config -q",
 		"uv run --frozen python scripts/verificar_stack.py",

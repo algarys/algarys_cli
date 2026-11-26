@@ -56,10 +56,15 @@ jobs:
           uv run alembic upgrade head
           uv run alembic check
 
+      # status em vez de diff: pega também o openapi.json fora do git.
       - name: Contrato em dia com o código
         run: |
           uv run python scripts/gerar_contrato.py
-          git diff --exit-code -- openapi.json
+          if [ -n "$(git status --porcelain -- openapi.json)" ]; then
+            git diff -- openapi.json
+            echo "::error::openapi.json desatualizado ou fora do git: rode scripts/gerar_contrato.py e commite"
+            exit 1
+          fi
 
       - name: Testes (cobertura de 100%)
         run: uv run pytest tests --cov=app
