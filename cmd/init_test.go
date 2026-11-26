@@ -92,3 +92,28 @@ func TestGeneratedProjectRequiresFullCoverage(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectStepsBuildImageWithChosenPythonVersion(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "meu-projeto")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		return "", nil
+	})
+
+	config := ProjectConfig{Name: projectDir, PythonVersion: "3.11"}
+	for _, step := range projectSteps(config, "meu_projeto") {
+		if err := step.action(); err != nil {
+			t.Fatalf("%s: %v", step.message, err)
+		}
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join(projectDir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(dockerfile), "FROM python:3.11-slim\n") {
+		t.Errorf("Dockerfile deveria usar o Python escolhido:\n%s", dockerfile)
+	}
+}

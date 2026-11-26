@@ -260,7 +260,9 @@ func projectSteps(config ProjectConfig, moduleName string) []initStep {
 		}},
 		{ui.IconFile, "Gerando arquivos de configuração", func() error {
 			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-			return templates.RenderProject(config.Name, templates.NewData(config.Name, false))
+			data := templates.NewData(config.Name, false)
+			data.PythonVersion = config.PythonVersion
+			return templates.RenderProject(config.Name, data)
 		}},
 		// Antes do Git, para o uv.lock entrar no commit inicial.
 		{ui.IconPython, "Configurando ambiente UV", func() error {
