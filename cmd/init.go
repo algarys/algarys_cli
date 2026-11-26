@@ -385,11 +385,14 @@ func createProjectStructure(projectName, moduleName string) {
 	}
 
 	mainContent := fmt.Sprintf(`"""Ponto de entrada de %s."""
+
 import uvicorn
 
 
 def main() -> None:
-    uvicorn.run("app.api.presentation.http.app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "app.api.presentation.http.app:app", host="0.0.0.0", port=8000, reload=True
+    )
 
 
 if __name__ == "__main__":
@@ -398,6 +401,7 @@ if __name__ == "__main__":
 	os.WriteFile(filepath.Join(basePath, "__main__.py"), []byte(mainContent), 0644)
 
 	entityExample := `"""Entidade base do domínio."""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -412,6 +416,7 @@ class BaseEntity:
 	os.WriteFile(filepath.Join(basePath, "api", "domain", "entities", "base.py"), []byte(entityExample), 0644)
 
 	repoInterfaceExample := `"""Interfaces de repositório."""
+
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 from uuid import UUID
@@ -419,7 +424,7 @@ from uuid import UUID
 T = TypeVar("T")
 
 
-class Repository(ABC, Generic[T]):
+class Repository(ABC, Generic[T]):  # noqa: UP046 (aceita Python < 3.12)
     @abstractmethod
     async def get_by_id(self, id: UUID) -> T | None: ...
 
@@ -434,25 +439,26 @@ class Repository(ABC, Generic[T]):
 	coreExample := `"""Exceções e configurações globais."""
 
 
-class AppException(Exception):
-    def __init__(self, message: str, code: str = "INTERNAL_ERROR"):
+class AppError(Exception):
+    def __init__(self, message: str, code: str = "INTERNAL_ERROR") -> None:
         self.message = message
         self.code = code
         super().__init__(message)
 
 
-class NotFoundError(AppException):
-    def __init__(self, resource: str, id: str):
+class NotFoundError(AppError):
+    def __init__(self, resource: str, id: str) -> None:
         super().__init__(f"{resource} '{id}' não encontrado.", code="NOT_FOUND")
 
 
-class ValidationError(AppException):
-    def __init__(self, message: str):
+class ValidationError(AppError):
+    def __init__(self, message: str) -> None:
         super().__init__(message, code="VALIDATION_ERROR")
 `
 	os.WriteFile(filepath.Join(basePath, "core", "exceptions.py"), []byte(coreExample), 0644)
 
 	settingsModule := `"""Configurações da aplicação via pydantic-settings."""
+
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -495,12 +501,18 @@ settings = get_settings()
 	os.WriteFile(filepath.Join(basePath, "core", "settings.py"), []byte(settingsModule), 0644)
 
 	loggingSetup := `"""Configuração centralizada de logging."""
+
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from app.core.settings import settings
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 LOGS_DIR = Path("logs")
 _SUBDIRS = ["debug", "info", "warning", "error", "exception"]
@@ -511,13 +523,14 @@ _FMT_CONSOLE = (
 )
 
 
-def _level_filter(name: str):
-    def _filter(record):
+def _level_filter(name: str) -> Callable[["Record"], bool]:
+    def _filter(record: "Record") -> bool:
         return record["level"].name == name.upper()
+
     return _filter
 
 
-def _exception_filter(record) -> bool:
+def _exception_filter(record: "Record") -> bool:
     return record["exception"] is not None
 
 
@@ -527,7 +540,9 @@ def setup_logging() -> None:
 
     logger.remove()
 
-    logger.add(sys.stdout, level=settings.log_level.upper(), colorize=True, format=_FMT_CONSOLE)
+    logger.add(
+        sys.stdout, level=settings.log_level.upper(), colorize=True, format=_FMT_CONSOLE
+    )
 
     for lvl in ("debug", "info", "warning", "error"):
         logger.add(
@@ -553,6 +568,7 @@ def setup_logging() -> None:
 	os.WriteFile(filepath.Join(basePath, "core", "logging.py"), []byte(loggingSetup), 0644)
 
 	agentExample := `"""Base para agentes de IA."""
+
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -563,14 +579,15 @@ class BaseAgent(ABC):
         self.model = model
 
     @abstractmethod
-    async def run(self, input: str, **kwargs) -> Any: ...
+    async def run(self, input: str, **kwargs: Any) -> Any: ...
 
     @abstractmethod
-    def get_tools(self) -> list: ...
+    def get_tools(self) -> list[Any]: ...
 `
 	os.WriteFile(filepath.Join(basePath, "ia", "agents", "base.py"), []byte(agentExample), 0644)
 
 	toolExample := `"""Base para ferramentas de agentes."""
+
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -580,12 +597,12 @@ class BaseTool(ABC):
     description: str
 
     @abstractmethod
-    async def execute(self, **kwargs) -> Any: ...
+    async def execute(self, **kwargs: Any) -> Any: ...
 
     @abstractmethod
-    def get_parameters(self) -> dict: ...
+    def get_parameters(self) -> dict[str, Any]: ...
 
-    def to_openai_function(self) -> dict:
+    def to_openai_function(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "description": self.description,
@@ -595,16 +612,18 @@ class BaseTool(ABC):
 	os.WriteFile(filepath.Join(basePath, "ia", "agents", "tools", "_shared", "base.py"), []byte(toolExample), 0644)
 
 	contractExample := `"""Contratos de mensagens entre serviços."""
-from typing import Protocol, runtime_checkable
+
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
 class Runnable(Protocol):
-    async def run(self, *args, **kwargs): ...
+    async def run(self, *args: Any, **kwargs: Any) -> Any: ...
 `
 	os.WriteFile(filepath.Join(basePath, "shared", "contracts", "base.py"), []byte(contractExample), 0644)
 
 	healthRoute := `"""Rota de healthcheck."""
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -622,6 +641,8 @@ async def health() -> HealthResponse:
 	os.WriteFile(filepath.Join(basePath, "api", "presentation", "http", "routes", "health.py"), []byte(healthRoute), 0644)
 
 	httpApp := fmt.Sprintf(`"""FastAPI application factory."""
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -633,7 +654,7 @@ from app.core.settings import settings
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     yield
 
