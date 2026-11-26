@@ -117,3 +117,10 @@ func TestProjectStepsBuildImageWithChosenPythonVersion(t *testing.T) {
 		t.Errorf("Dockerfile deveria usar o Python escolhido:\n%s", dockerfile)
 	}
 }
+
+func TestGeneratedGitignoreKeepsOpenAPIContract(t *testing.T) {
+	gitignore := generatedConfigFile(t, ".gitignore")
+	if !strings.Contains(gitignore, "\n!/openapi.json\n") {
+		t.Errorf(".gitignore ignora o openapi.json da raiz:\n%s", gitignore)
+	}
+}

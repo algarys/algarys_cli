@@ -859,6 +859,7 @@ wandb/
 *.parquet
 *.json
 !ai/configs/*.json
+!/openapi.json
 `
 	os.WriteFile(filepath.Join(projectName, ".gitignore"), []byte(gitignore), 0644)
 
