@@ -30,8 +30,6 @@ services:
       timeout: 3s
       retries: 10
     logging: *logging
-    networks:
-      - default
 
   migrate:
     <<: *api
@@ -40,8 +38,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - default
 
   # O healthcheck em /health vem do HEALTHCHECK da imagem. Sem front, a api
   # entra na rede do proxy reverso.
