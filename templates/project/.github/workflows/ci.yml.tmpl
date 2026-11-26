@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  # Na dev e no hotfix da main o CI roda dentro do deploy.yml.
+  workflow_call:
+
+# Via workflow_call, github.workflow é o do chamador: separa o CI do deploy do CI do PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  back:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d app_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://app:app@localhost:5432/app_test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Dependências
+        run: uv sync --frozen --all-extras
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Tipos
+        run: uv run mypy app/
+
+      - name: Migrações
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      # status em vez de diff: pega também o openapi.json fora do git.
+      - name: Contrato em dia com o código
+        run: |
+          uv run python scripts/gerar_contrato.py
+          if [ -n "$(git status --porcelain -- openapi.json)" ]; then
+            git diff -- openapi.json
+            echo "::error::openapi.json desatualizado ou fora do git: rode scripts/gerar_contrato.py e commite"
+            exit 1
+          fi
+
+      - name: Testes (cobertura de 100%)
+        run: uv run pytest tests --cov=app
+
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+
+      - name: Compose válido
+        run: |
+          cp stack.env.example stack.env
+          docker compose -f docker-compose.prod.yml --env-file stack.env.example config -q
+
+      - name: Variáveis e portas
+        run: uv run --frozen python scripts/verificar_stack.py
+
+  imagem:
+    needs: [back, stack]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Versão
+        run: |
+          echo "SHA_CURTO=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Build da imagem
+        run: |
+          docker build -t "<% .Registro %>-api:$IMAGE_TAG" \
+            --build-arg GIT_SHA="$SHA_CURTO" .
+
+      - name: Sobe a stack
+        run: |
+          cp stack.env.example stack.env
+          docker network create nginx-proxy-manager_default
+          docker compose -f docker-compose.prod.yml --env-file stack.env.example \
+            up -d --wait --wait-timeout 180
+
+      # A imagem não tem curl nem wget: o /health é lido com o Python da própria api.
+      - name: Smoke test do /health
+        run: |
+          docker compose -f docker-compose.prod.yml --env-file stack.env.example \
+            exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())" \
+            | jq -e --arg v "$SHA_CURTO" '.status == "ok" and .version == $v'
+
+      - name: Logs da stack
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml --env-file stack.env.example logs

@@ -20,6 +20,7 @@ func TestProjectStepsSyncUVAfterFilesAndBeforeInitialCommit(t *testing.T) {
 				"pyproject.toml",
 				filepath.Join(".github", "workflows", "enforce-dev-source-to-main.yml"),
 				filepath.Join(".github", "pull_request_template.md"),
+				filepath.Join("scripts", "gerar_contrato.py"),
 			} {
 				if _, err := os.Stat(filepath.Join(dir, generated)); err != nil {
 					t.Errorf("%s deveria existir antes do uv sync: %v", generated, err)
@@ -39,6 +40,7 @@ func TestProjectStepsSyncUVAfterFilesAndBeforeInitialCommit(t *testing.T) {
 
 	want := []string{
 		"uv sync",
+		"uv run python scripts/gerar_contrato.py",
 		"git init -q -b main",
 		"git add .",
 		"git commit -q -m Initial commit - Algarys project structure",
@@ -115,5 +117,12 @@ func TestProjectStepsBuildImageWithChosenPythonVersion(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(dockerfile), "FROM python:3.11-slim\n") {
 		t.Errorf("Dockerfile deveria usar o Python escolhido:\n%s", dockerfile)
+	}
+}
+
+func TestGeneratedGitignoreKeepsOpenAPIContract(t *testing.T) {
+	gitignore := generatedConfigFile(t, ".gitignore")
+	if !strings.Contains(gitignore, "\n!/openapi.json\n") {
+		t.Errorf(".gitignore ignora o openapi.json da raiz:\n%s", gitignore)
 	}
 }

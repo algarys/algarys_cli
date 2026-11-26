@@ -264,7 +264,7 @@ func projectSteps(config ProjectConfig, moduleName string) []initStep {
 			data.PythonVersion = config.PythonVersion
 			return templates.RenderProject(config.Name, data)
 		}},
-		// Antes do Git, para o uv.lock entrar no commit inicial.
+		// Antes do Git, para o uv.lock e o openapi.json entrarem no commit inicial.
 		{ui.IconPython, "Configurando ambiente UV", func() error {
 			return initUV(config.Name)
 		}},
@@ -859,6 +859,7 @@ wandb/
 *.parquet
 *.json
 !ai/configs/*.json
+!/openapi.json
 `
 	os.WriteFile(filepath.Join(projectName, ".gitignore"), []byte(gitignore), 0644)
 

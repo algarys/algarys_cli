@@ -142,3 +142,42 @@ func TestRenderProjectGeneratesProductionStack(t *testing.T) {
 		"def problemas(", "publica porta no host",
 	)
 }
+
+func TestRenderProjectGeneratesCI(t *testing.T) {
+	dest := renderDefault(t)
+	ci := readFile(t, filepath.Join(dest, ".github", "workflows", "ci.yml"))
+
+	assertContains(t, "ci.yml", ci,
+		"on:\n  pull_request:\n",
+		"  workflow_call:\n",
+		"group: ci-${{ github.workflow }}-${{ github.ref }}",
+		"permissions:\n  contents: read",
+		"actions/checkout@v7",
+		"astral-sh/setup-uv@v10.2.0",
+		"image: postgres:17-alpine",
+		"uv sync --frozen --all-extras",
+		"uv run ruff check .",
+		"uv run ruff format --check .",
+		"uv run mypy app/",
+		"uv run alembic upgrade head",
+		"uv run alembic check",
+		"uv run python scripts/gerar_contrato.py",
+		`git status --porcelain -- openapi.json`,
+		"uv run pytest tests --cov=app",
+		"docker compose -f docker-compose.prod.yml --env-file stack.env.example config -q",
+		"uv run --frozen python scripts/verificar_stack.py",
+		"needs: [back, stack]",
+		`docker build -t "ghcr.io/algarys/algarys_meu-projeto-api:$IMAGE_TAG"`,
+		`--build-arg GIT_SHA="$SHA_CURTO"`,
+		"docker network create nginx-proxy-manager_default",
+		"up -d --wait",
+		"exec -T api",
+		`jq -e --arg v "$SHA_CURTO" '.status == "ok" and .version == $v'`,
+		"if: failure()",
+	)
+	for _, forbidden := range []string{"front", "<%"} {
+		if strings.Contains(ci, forbidden) {
+			t.Errorf("ci.yml não deveria conter %q", forbidden)
+		}
+	}
+}
