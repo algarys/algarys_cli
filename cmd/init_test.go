@@ -225,3 +225,15 @@ func TestRunStepsStopsAtFirstFailure(t *testing.T) {
 		t.Errorf("executados = %v: nada roda depois da falha (o git não pode commitar um projeto incompleto)", executados)
 	}
 }
+
+func TestNextStepsStartFrontendInAnotherTerminalWithEnv(t *testing.T) {
+	semFront := strings.Join(nextSteps(ProjectConfig{Name: "p"}), "\n")
+	if semFront != "cd p\nuv sync --all-extras\nuv run python -m app" {
+		t.Errorf("sem front os próximos passos mudaram:\n%s", semFront)
+	}
+
+	comFront := nextSteps(ProjectConfig{Name: "p", TemFrontend: true})
+	if got := comFront[len(comFront)-1]; got != "em outro terminal: cd p/frontend && cp .env.example .env && npm run dev" {
+		t.Errorf("último passo com front = %q", got)
+	}
+}

@@ -267,11 +267,8 @@ func runInit(cmd *cobra.Command, args []string) {
 		Foreground(ui.Primary).
 		PaddingLeft(4)
 
-	fmt.Println(cmdStyle.Render(fmt.Sprintf("cd %s", config.Name)))
-	fmt.Println(cmdStyle.Render("uv sync --all-extras"))
-	fmt.Println(cmdStyle.Render("uv run python -m app"))
-	if config.TemFrontend {
-		fmt.Println(cmdStyle.Render("cd frontend && npm run dev"))
+	for _, line := range nextSteps(config) {
+		fmt.Println(cmdStyle.Render(line))
 	}
 	fmt.Println()
 
@@ -289,6 +286,15 @@ func runInit(cmd *cobra.Command, args []string) {
 		PaddingLeft(2)
 	fmt.Println(tipStyle.Render(fmt.Sprintf("%s Dica: use 'algarys --help' para ver outros comandos", ui.IconMagic)))
 	fmt.Println()
+}
+
+// O uv run python -m app prende o terminal, por isso o front vai em outro.
+func nextSteps(config ProjectConfig) []string {
+	steps := []string{"cd " + config.Name, "uv sync --all-extras", "uv run python -m app"}
+	if config.TemFrontend {
+		steps = append(steps, fmt.Sprintf("em outro terminal: cd %s/frontend && cp .env.example .env && npm run dev", config.Name))
+	}
+	return steps
 }
 
 // Para no primeiro erro: um passo seguinte, como o commit inicial, gravaria um projeto incompleto.
