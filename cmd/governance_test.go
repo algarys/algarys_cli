@@ -378,7 +378,7 @@ func TestConfigureEnvironmentsReportsWhichEnvironmentFailed(t *testing.T) {
 }
 
 func TestEnvironmentChecklistListsWhatToFillPerEnvironment(t *testing.T) {
-	lines := environmentChecklist("algarys", "algarys_meu-projeto")
+	lines := environmentChecklist("algarys_meu-projeto", "algarys")
 	text := strings.Join(lines, "\n")
 
 	for _, expected := range []string{
@@ -390,5 +390,24 @@ func TestEnvironmentChecklistListsWhatToFillPerEnvironment(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Errorf("checklist não contém %q:\n%s", expected, text)
 		}
+	}
+}
+
+func TestConfigureEnvironmentsStillCreatesProducaoWhenHomologFails(t *testing.T) {
+	var attempted []string
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		attempted = append(attempted, args[1])
+		if strings.Contains(args[1], "environments/homolog") {
+			return "", errors.New("falhou")
+		}
+		return "", nil
+	})
+
+	err := configureEnvironments("algarys_meu-projeto", "algarys")
+	if err == nil || !strings.Contains(err.Error(), "homolog") {
+		t.Fatalf("erro = %v, deveria identificar homolog", err)
+	}
+	if !strings.Contains(strings.Join(attempted, " "), "environments/producao/deployment-branch-policies") {
+		t.Errorf("producao não foi configurado após falha em homolog: %v", attempted)
 	}
 }

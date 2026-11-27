@@ -215,7 +215,7 @@ func runInit(cmd *cobra.Command, args []string) {
 				} else {
 					spinnerEnv.Warning(fmt.Sprintf("Environments não criados (crie à mão): %v", err))
 				}
-				environmentLines = environmentChecklist(config.GitHubOrg, repoName)
+				environmentLines = environmentChecklist(repoName, config.GitHubOrg)
 			} else {
 				spinner.Warning(fmt.Sprintf("Repositório não criado: %v", err))
 			}

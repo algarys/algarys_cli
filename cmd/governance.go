@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -229,23 +230,31 @@ func configureEnvironments(repoName, org string) error {
 		return err
 	}
 
+	var failures []error
 	for _, env := range deployEnvironments {
-		endpoint := fmt.Sprintf("/repos/%s/%s/environments/%s", org, repoName, env.name)
-		if err := ghAPI("PUT", endpoint, string(policy)); err != nil {
-			return fmt.Errorf("criar environment %s: %w", env.name, err)
+		if err := configureEnvironment(repoName, org, env.name, env.branch, string(policy)); err != nil {
+			failures = append(failures, err)
 		}
-		branchPolicy, err := json.Marshal(map[string]string{"name": env.branch, "type": "branch"})
-		if err != nil {
-			return err
-		}
-		if err := ghAPI("POST", endpoint+"/deployment-branch-policies", string(branchPolicy)); err != nil {
-			return fmt.Errorf("restringir environment %s à branch %s: %w", env.name, env.branch, err)
-		}
+	}
+	return errors.Join(failures...)
+}
+
+func configureEnvironment(repoName, org, name, branch, policy string) error {
+	endpoint := fmt.Sprintf("/repos/%s/%s/environments/%s", org, repoName, name)
+	if err := ghAPI("PUT", endpoint, policy); err != nil {
+		return fmt.Errorf("criar environment %s: %w", name, err)
+	}
+	branchPolicy, err := json.Marshal(map[string]string{"name": branch, "type": "branch"})
+	if err != nil {
+		return err
+	}
+	if err := ghAPI("POST", endpoint+"/deployment-branch-policies", string(branchPolicy)); err != nil {
+		return fmt.Errorf("restringir environment %s à branch %s: %w", name, branch, err)
 	}
 	return nil
 }
 
-func environmentChecklist(org, repoName string) []string {
+func environmentChecklist(repoName, org string) []string {
 	lines := []string{fmt.Sprintf("Preencha em https://github.com/%s/%s/settings/environments:", org, repoName)}
 	for _, env := range deployEnvironments {
 		lines = append(lines,
