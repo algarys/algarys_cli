@@ -324,7 +324,7 @@ func TestRenderProjectGeneratesADRs(t *testing.T) {
 	)
 }
 
-func renderComFront(t *testing.T) string {
+func renderWithFrontend(t *testing.T) string {
 	t.Helper()
 	dest := t.TempDir()
 	if err := RenderProject(dest, NewData("meu-projeto", true)); err != nil {
@@ -334,7 +334,7 @@ func renderComFront(t *testing.T) string {
 }
 
 func TestRenderProjectPutsOnlyFrontendOnProxyNetwork(t *testing.T) {
-	compose := readFile(t, filepath.Join(renderComFront(t), "docker-compose.prod.yml"))
+	compose := readFile(t, filepath.Join(renderWithFrontend(t), "docker-compose.prod.yml"))
 
 	assertContains(t, "docker-compose.prod.yml com front", compose,
 		"image: ghcr.io/algarys/algarys_meu-projeto-frontend:${IMAGE_TAG:?",
@@ -357,7 +357,7 @@ func TestRenderProjectPutsOnlyFrontendOnProxyNetwork(t *testing.T) {
 }
 
 func TestRenderProjectGeneratesFrontend(t *testing.T) {
-	front := filepath.Join(renderComFront(t), "frontend")
+	front := filepath.Join(renderWithFrontend(t), "frontend")
 
 	assertContains(t, "package.json", readFile(t, filepath.Join(front, "package.json")),
 		`"name": "meu-projeto-frontend"`,
