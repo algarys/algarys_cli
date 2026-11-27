@@ -376,3 +376,19 @@ func TestConfigureEnvironmentsReportsWhichEnvironmentFailed(t *testing.T) {
 		t.Fatalf("erro = %v, deveria identificar o environment", err)
 	}
 }
+
+func TestEnvironmentChecklistListsWhatToFillPerEnvironment(t *testing.T) {
+	lines := environmentChecklist("algarys", "algarys_meu-projeto")
+	text := strings.Join(lines, "\n")
+
+	for _, expected := range []string{
+		"https://github.com/algarys/algarys_meu-projeto/settings/environments",
+		"homolog", "producao",
+		"PORTAINER_URL", "PORTAINER_STACK_ID", "PORTAINER_ENDPOINT_ID", "APP_URL",
+		"PORTAINER_ACCESS_TOKEN",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("checklist não contém %q:\n%s", expected, text)
+		}
+	}
+}

@@ -244,3 +244,15 @@ func configureEnvironments(repoName, org string) error {
 	}
 	return nil
 }
+
+func environmentChecklist(org, repoName string) []string {
+	lines := []string{fmt.Sprintf("Preencha em https://github.com/%s/%s/settings/environments:", org, repoName)}
+	for _, env := range deployEnvironments {
+		lines = append(lines,
+			fmt.Sprintf("%s (branch %s)", env.name, env.branch),
+			"  variáveis: "+strings.Join(environmentVariables, ", "),
+			"  segredo:   "+strings.Join(environmentSecrets, ", "),
+		)
+	}
+	return lines
+}
