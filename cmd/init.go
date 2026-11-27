@@ -1026,6 +1026,7 @@ app/
 
 - Python %s+
 - [UV](https://docs.astral.sh/uv/)
+- [Docker](https://docs.docker.com/get-docker/)
 
 ### Instalação
 
