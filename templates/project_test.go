@@ -381,6 +381,14 @@ func TestRenderProjectGeneratesFrontend(t *testing.T) {
 	assertContains(t, "frontend/.gitignore", readFile(t, filepath.Join(front, ".gitignore")),
 		"\n!*.json\n", "node_modules/",
 	)
+	vite := readFile(t, filepath.Join(front, "vite.config.ts"))
+	assertContains(t, "vite.config.ts", vite,
+		`if (command === "serve" && !env.VITE_PROXY_TARGET) {`,
+		"target: env.VITE_PROXY_TARGET,",
+	)
+	if strings.Contains(vite, "localhost") {
+		t.Error("vite.config.ts não deveria ter o destino do proxy hardcoded")
+	}
 	assertContains(t, "index.html", readFile(t, filepath.Join(front, "index.html")),
 		"<title>meu-projeto</title>", `<div id="root"></div>`,
 	)
