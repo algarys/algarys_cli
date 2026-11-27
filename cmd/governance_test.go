@@ -292,3 +292,87 @@ func TestGeneratedReadmeDocumentsBranchFlow(t *testing.T) {
 		}
 	}
 }
+
+func recordCalls(t *testing.T) *[]recordedCommand {
+	t.Helper()
+	var calls []recordedCommand
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		calls = append(calls, recordedCommand{dir: dir, stdin: stdin, name: name, args: append([]string(nil), args...)})
+		return "", nil
+	})
+	return &calls
+}
+
+func TestConfigureRepoSettingsMakesDevDefaultAndDeletesMergedBranches(t *testing.T) {
+	calls := recordCalls(t)
+
+	if err := configureRepoSettings("algarys_meu-projeto", "algarys"); err != nil {
+		t.Fatalf("configureRepoSettings() error = %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("quantidade de chamadas = %d, want 1", len(*calls))
+	}
+	call := (*calls)[0]
+	if got := strings.Join(call.args[:4], " "); got != "api /repos/algarys/algarys_meu-projeto -X PATCH" {
+		t.Errorf("chamada = %q", got)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(call.stdin), &payload); err != nil {
+		t.Fatalf("payload inválido: %v", err)
+	}
+	if payload["default_branch"] != "dev" || payload["delete_branch_on_merge"] != true {
+		t.Errorf("payload = %v", payload)
+	}
+}
+
+func TestConfigureEnvironmentsRestrictsEachToItsBranch(t *testing.T) {
+	calls := recordCalls(t)
+
+	if err := configureEnvironments("algarys_meu-projeto", "algarys"); err != nil {
+		t.Fatalf("configureEnvironments() error = %v", err)
+	}
+
+	want := []struct{ method, endpoint, field, value string }{
+		{"PUT", "/repos/algarys/algarys_meu-projeto/environments/homolog", "", ""},
+		{"POST", "/repos/algarys/algarys_meu-projeto/environments/homolog/deployment-branch-policies", "name", "dev"},
+		{"PUT", "/repos/algarys/algarys_meu-projeto/environments/producao", "", ""},
+		{"POST", "/repos/algarys/algarys_meu-projeto/environments/producao/deployment-branch-policies", "name", "main"},
+	}
+	if len(*calls) != len(want) {
+		t.Fatalf("quantidade de chamadas = %d, want %d", len(*calls), len(want))
+	}
+	for i, w := range want {
+		call := (*calls)[i]
+		if got := strings.Join(call.args[:4], " "); got != "api "+w.endpoint+" -X "+w.method {
+			t.Errorf("chamada %d = %q", i, got)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(call.stdin), &payload); err != nil {
+			t.Fatalf("payload %d inválido: %v", i, err)
+		}
+		if w.method == "PUT" {
+			policy := payload["deployment_branch_policy"].(map[string]any)
+			if policy["custom_branch_policies"] != true || policy["protected_branches"] != false {
+				t.Errorf("policy %d = %v", i, policy)
+			}
+			continue
+		}
+		if payload[w.field] != w.value || payload["type"] != "branch" {
+			t.Errorf("branch policy %d = %v", i, payload)
+		}
+	}
+}
+
+func TestConfigureEnvironmentsReportsWhichEnvironmentFailed(t *testing.T) {
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		if strings.Contains(strings.Join(args, " "), "environments/producao") {
+			return "", errors.New("plano sem environments")
+		}
+		return "", nil
+	})
+
+	err := configureEnvironments("algarys_meu-projeto", "algarys")
+	if err == nil || !strings.Contains(err.Error(), "producao") {
+		t.Fatalf("erro = %v, deveria identificar o environment", err)
+	}
+}

@@ -193,3 +193,54 @@ func buildRulesetPayload(spec rulesetSpec) (string, error) {
 	}
 	return string(encoded), nil
 }
+
+func configureRepoSettings(repoName, org string) error {
+	payload, err := json.Marshal(map[string]any{
+		"default_branch":         "dev",
+		"delete_branch_on_merge": true,
+	})
+	if err != nil {
+		return err
+	}
+	if err := ghAPI("PATCH", fmt.Sprintf("/repos/%s/%s", org, repoName), string(payload)); err != nil {
+		return fmt.Errorf("configurar repositório: %w", err)
+	}
+	return nil
+}
+
+var deployEnvironments = []struct{ name, branch string }{
+	{"homolog", "dev"},
+	{"producao", "main"},
+}
+
+var (
+	environmentVariables = []string{"PORTAINER_URL", "PORTAINER_STACK_ID", "PORTAINER_ENDPOINT_ID", "APP_URL"}
+	environmentSecrets   = []string{"PORTAINER_ACCESS_TOKEN"}
+)
+
+func configureEnvironments(repoName, org string) error {
+	policy, err := json.Marshal(map[string]any{
+		"deployment_branch_policy": map[string]bool{
+			"protected_branches":     false,
+			"custom_branch_policies": true,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, env := range deployEnvironments {
+		endpoint := fmt.Sprintf("/repos/%s/%s/environments/%s", org, repoName, env.name)
+		if err := ghAPI("PUT", endpoint, string(policy)); err != nil {
+			return fmt.Errorf("criar environment %s: %w", env.name, err)
+		}
+		branchPolicy, err := json.Marshal(map[string]string{"name": env.branch, "type": "branch"})
+		if err != nil {
+			return err
+		}
+		if err := ghAPI("POST", endpoint+"/deployment-branch-policies", string(branchPolicy)); err != nil {
+			return fmt.Errorf("restringir environment %s à branch %s: %w", env.name, env.branch, err)
+		}
+	}
+	return nil
+}
