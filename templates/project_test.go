@@ -355,3 +355,38 @@ func TestRenderProjectPutsOnlyFrontendOnProxyNetwork(t *testing.T) {
 		t.Error("docker-compose.prod.yml não deveria publicar portas")
 	}
 }
+
+func TestRenderProjectGeneratesFrontend(t *testing.T) {
+	front := filepath.Join(renderComFront(t), "frontend")
+
+	assertContains(t, "package.json", readFile(t, filepath.Join(front, "package.json")),
+		`"name": "meu-projeto-frontend"`,
+		`"lint": "eslint ."`,
+		`"types:api": "openapi-typescript ../openapi.json -o src/types/api.ts"`,
+		`"@tanstack/react-query"`, `"react": "^19`, `"react-router"`,
+		`"prettier"`, `"vite"`,
+	)
+	assertContains(t, "Dockerfile do front", readFile(t, filepath.Join(front, "Dockerfile")),
+		"FROM node:22-alpine AS build",
+		"RUN npm ci",
+		"FROM nginx:",
+		"ARG GIT_SHA=dev",
+		`echo "$GIT_SHA" > /usr/share/nginx/html/version.txt`,
+	)
+	assertContains(t, "nginx.conf", readFile(t, filepath.Join(front, "nginx.conf")),
+		"location /api/ {\n        proxy_pass http://api:8000/;",
+		"location = /version.txt {\n        add_header Cache-Control \"no-store\";",
+		"try_files $uri $uri/ /index.html;",
+	)
+	assertContains(t, "index.html", readFile(t, filepath.Join(front, "index.html")),
+		"<title>meu-projeto</title>", `<div id="root"></div>`,
+	)
+	for _, arquivo := range []string{
+		".gitignore", ".dockerignore", ".prettierrc", "eslint.config.js", "vite.config.ts",
+		"tsconfig.json", "src/main.tsx", "src/app/router.tsx", "src/pages/home/HomePage.tsx",
+	} {
+		if _, err := os.Stat(filepath.Join(front, filepath.FromSlash(arquivo))); err != nil {
+			t.Errorf("frontend/%s deveria existir: %v", arquivo, err)
+		}
+	}
+}

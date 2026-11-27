@@ -1,0 +1,12 @@
+import { createBrowserRouter } from "react-router";
+
+export const router = createBrowserRouter([
+  {
+    index: true,
+    lazy: async () => ({ Component: (await import("@/pages/home")).HomePage }),
+  },
+  {
+    path: "*",
+    lazy: async () => ({ Component: (await import("@/pages/not-found")).NotFoundPage }),
+  },
+]);
