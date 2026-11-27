@@ -192,7 +192,6 @@ func TestRenderProjectGeneratesHomologDeploy(t *testing.T) {
 		"REGISTRO: ghcr.io/algarys/algarys_meu-projeto",
 		`ANTES: ${{ github.event.before }}`,
 		`[[ "$ANTES" =~ ^0+$ ]]`,
-		"if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'dev'",
 		"uses: ./.github/workflows/ci.yml",
 		"needs: ci",
 		"packages: write",
@@ -202,8 +201,7 @@ func TestRenderProjectGeneratesHomologDeploy(t *testing.T) {
 		`if [[ -z "$PORTAINER_URL" ]]; then`,
 		"PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}",
 		`IMAGE_TAG="sha-${GITHUB_SHA::7}" python3 scripts/deploy_portainer.py`,
-		"if: needs.deploy-homolog.outputs.configurada == 'true'",
-		`-t "$REGISTRO-api:homolog" "$REGISTRO-api:sha-${GITHUB_SHA::7}"`,
+		"needs.deploy-homolog.result == 'success' && needs.deploy-homolog.outputs.configurada == 'true'",
 	)
 	if strings.Contains(deploy, "<%") {
 		t.Error("deploy.yml ficou com delimitador de template")
@@ -239,4 +237,89 @@ func TestRenderProjectGeneratesPortainerDeployScript(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestRenderProjectGeneratesProductionDeploy(t *testing.T) {
+	dest := renderDefault(t)
+	deploy := readFile(t, filepath.Join(dest, ".github", "workflows", "deploy.yml"))
+
+	assertContains(t, "deploy.yml", deploy,
+		"  IMAGENS: api\n",
+		"  ci:\n    needs: [criacao, origem]\n",
+		"(github.ref_name == 'dev' || needs.origem.outputs.tipo == 'hotfix')",
+		"  build:\n    needs: ci\n    if: ${{ !cancelled() && needs.ci.result == 'success' }}",
+		"needs.build.result == 'success' && github.ref_name == 'dev' }}",
+		`for imagem in $IMAGENS; do`,
+		`-t "$REGISTRO-$imagem:homolog" "$REGISTRO-$imagem:sha-${GITHUB_SHA::7}"`,
+		"  origem:\n    needs: criacao\n    if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'main'",
+		"  promover:\n    needs: [origem, build]\n",
+		"  cobrar-volta-dev:\n    needs: origem\n",
+		"  deploy-producao:\n    needs: [origem, promover]\n",
+		"if: ${{ !cancelled() && needs.promover.result == 'success' }}",
+		"      name: producao\n",
+		"Environment producao sem PORTAINER_URL: deploy pulado",
+		"IMAGE_TAG: ${{ needs.origem.outputs.tag }}\n        run: python3 scripts/deploy_portainer.py",
+	)
+
+	comFront := t.TempDir()
+	if err := RenderProject(comFront, NewData("meu-projeto", true)); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, "deploy.yml com front",
+		readFile(t, filepath.Join(comFront, ".github", "workflows", "deploy.yml")), "  IMAGENS: api frontend\n")
+}
+
+func TestRenderProjectGeneratesRollback(t *testing.T) {
+	dest := renderDefault(t)
+	rollback := readFile(t, filepath.Join(dest, ".github", "workflows", "rollback.yml"))
+
+	assertContains(t, "rollback.yml", rollback,
+		"on:\n  workflow_dispatch:\n",
+		"options: [homolog, producao]",
+		"group: deploy-${{ github.ref_name }}\n  cancel-in-progress: false",
+		"REGISTRO: ghcr.io/algarys/algarys_meu-projeto\n",
+		"IMAGENS: api\n",
+		"AMBIENTE: ${{ inputs.ambiente }}",
+		"TAG: ${{ inputs.tag }}",
+		"  deploy:\n    needs: validar\n",
+		"name: ${{ inputs.ambiente }}",
+		`IMAGE_TAG="$TAG" python3 scripts/deploy_portainer.py`,
+		"  etiqueta:\n    needs: deploy\n",
+	)
+	if strings.Contains(rollback, "<%") {
+		t.Error("rollback.yml ficou com delimitador de template")
+	}
+}
+
+func TestRenderProjectGeneratesADRs(t *testing.T) {
+	adrs := filepath.Join(renderDefault(t), "docs", "adr")
+
+	assertContains(t, "ADR-0001", readFile(t, filepath.Join(adrs, "0001-deploy-pela-api-do-portainer.md")),
+		"# ADR-0001", "IMAGE_TAG", "`pullImage: true`", "PORTAINER_ACCESS_TOKEN",
+	)
+	adr3 := readFile(t, filepath.Join(adrs, "0003-promover-a-imagem-testada.md"))
+	assertContains(t, "ADR-0003", adr3,
+		"# ADR-0003",
+		"1 aprovação de qualquer membro",
+		"sem `CODEOWNERS`",
+		"merge commit",
+		"histórico linear",
+		"**Exceção: hotfix.**",
+		"`hotfix/* → main`",
+	)
+	if strings.Contains(adr3, "code owner") {
+		t.Error("ADR-0003 não deveria exigir code owner")
+	}
+	if _, err := os.Stat(filepath.Join(adrs, "0002-duas-imagens-uma-unidade-de-deploy.md")); err == nil {
+		t.Error("ADR-0002 só existe com frontend")
+	}
+
+	comFront := t.TempDir()
+	if err := RenderProject(comFront, NewData("meu-projeto", true)); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, "ADR-0002",
+		readFile(t, filepath.Join(comFront, "docs", "adr", "0002-duas-imagens-uma-unidade-de-deploy.md")),
+		"# ADR-0002", "`…-api` e `…-frontend`",
+	)
 }

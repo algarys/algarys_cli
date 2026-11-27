@@ -13,6 +13,8 @@ permissions:
 
 env:
   REGISTRO: <% .Registro %>
+  # Unidade de deploy: sobem, são promovidas e voltam juntas (ADR-0002).
+  IMAGENS: api<% if .TemFrontend %> frontend<% end %>
 
 jobs:
   # O push que cria a branch (o do init, por exemplo) não tem o que publicar.
@@ -34,12 +36,16 @@ jobs:
           fi
 
   ci:
-    needs: criacao
-    if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'dev'
+    needs: [criacao, origem]
+    # Na promoção a imagem já passou pelo CI na dev; o origem pulado na dev pularia o CI junto.
+    if: ${{ !cancelled() && needs.criacao.outputs.nova == 'false' && (github.ref_name == 'dev' || needs.origem.outputs.tipo == 'hotfix') }}
     uses: ./.github/workflows/ci.yml
 
+  # Na dev e no hotfix; o hotfix é a única vez em que produção recebe uma imagem
+  # que não rodou em homolog (ADR-0003).
   build:
     needs: ci
+    if: ${{ !cancelled() && needs.ci.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -71,6 +77,8 @@ jobs:
 
   deploy-homolog:
     needs: build
+    # O origem pulado na dev deixa o success() implícito falso daqui para baixo.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.ref_name == 'dev' }}
     runs-on: ubuntu-latest
     # PUT (5 min) + espera (3 min) + reversão (5 min), com folga para não morrer revertendo.
     timeout-minutes: 20
@@ -107,7 +115,7 @@ jobs:
 
   etiqueta-homolog:
     needs: deploy-homolog
-    if: needs.deploy-homolog.outputs.configurada == 'true'
+    if: ${{ !cancelled() && needs.deploy-homolog.result == 'success' && needs.deploy-homolog.outputs.configurada == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -123,5 +131,157 @@ jobs:
       # homolog é só etiqueta: a stack roda o sha-…, nunca uma tag móvel (ADR-0001).
       - name: homolog aponta para o que está no ar
         run: |
-          docker buildx imagetools create \
-            -t "$REGISTRO-api:homolog" "$REGISTRO-api:sha-${GITHUB_SHA::7}"
+          for imagem in $IMAGENS; do
+            docker buildx imagetools create \
+              -t "$REGISTRO-$imagem:homolog" "$REGISTRO-$imagem:sha-${GITHUB_SHA::7}"
+          done
+
+  origem:
+    needs: criacao
+    if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      tipo: ${{ steps.pr.outputs.tipo }}
+      ramo: ${{ steps.pr.outputs.ramo }}
+      tag: ${{ steps.pr.outputs.tag }}
+    steps:
+      # Na promoção a tag é a do head.sha do PR, que é o que rodou em homolog (ADR-0003).
+      - name: PR que gerou o commit
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq "[.[] | select(.merge_commit_sha == \"$GITHUB_SHA\")][0] // empty")
+          if [[ -z "$pr" ]]; then
+            echo "::error::$GITHUB_SHA não veio de um PR mergeado na main"
+            exit 1
+          fi
+          ramo=$(jq -r .head.ref <<<"$pr")
+          head_sha=$(jq -r .head.sha <<<"$pr")
+          case "$ramo" in
+            dev) tipo=promocao; tag="sha-${head_sha::7}" ;;
+            hotfix/*) tipo=hotfix; tag="sha-${GITHUB_SHA::7}" ;;
+            *) echo "::error::origem $ramo não é dev nem hotfix/*"; exit 1 ;;
+          esac
+          echo "PR #$(jq -r .number <<<"$pr"): $ramo ($head_sha) -> main; $tipo com $tag"
+          {
+            echo "tipo=$tipo"
+            echo "ramo=$ramo"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+  promover:
+    needs: [origem, build]
+    # Sem status no if vale success(), que é falso com o build pulado na promoção.
+    if: ${{ !cancelled() && needs.origem.result == 'success' && (needs.origem.outputs.tipo == 'promocao' || needs.build.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TIPO: ${{ needs.origem.outputs.tipo }}
+      TAG: ${{ needs.origem.outputs.tag }}
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: producao aponta para a mesma imagem, sem rebuild
+        run: |
+          # Sem shell: explícito o runner não liga pipefail; o inspect tem que falhar sozinho.
+          digest() {
+            local manifesto
+            manifesto=$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}') || return 1
+            jq -r .digest <<<"$manifesto"
+          }
+          # Confere todas antes de reetiquetar, para produção nunca ficar com só uma trocada.
+          for imagem in $IMAGENS; do
+            if ! digest_tag=$(digest "$REGISTRO-$imagem:$TAG"); then
+              echo "::error::$REGISTRO-$imagem:$TAG não existe no GHCR"
+              exit 1
+            fi
+            # O sha-… vai para o GHCR antes do deploy de homolog; a etiqueta homolog só depois de ele passar.
+            if [[ "$TIPO" == promocao && "$digest_tag" != "$(digest "$REGISTRO-$imagem:homolog")" ]]; then
+              echo "::error::$imagem:homolog não é $TAG: o deploy de homolog falhou ou ainda está rodando; rode de novo quando $TAG estiver no ar lá"
+              exit 1
+            fi
+          done
+          for imagem in $IMAGENS; do
+            docker buildx imagetools create \
+              -t "$REGISTRO-$imagem:producao" "$REGISTRO-$imagem:$TAG"
+            digest_tag=$(digest "$REGISTRO-$imagem:$TAG")
+            digest_producao=$(digest "$REGISTRO-$imagem:producao")
+            echo "$imagem: $TAG=$digest_tag producao=$digest_producao"
+            if [[ "$digest_tag" != "$digest_producao" ]]; then
+              echo "::error::$imagem:producao ficou com digest diferente de $TAG"
+              exit 1
+            fi
+          done
+
+  # Não segura o deploy do hotfix: só deixa o run vermelho até a correção voltar para a dev.
+  cobrar-volta-dev:
+    needs: origem
+    if: needs.origem.outputs.tipo == 'hotfix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: PR do hotfix para a dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RAMO: ${{ needs.origem.outputs.ramo }}
+        run: |
+          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$RAMO" --base dev --state all \
+            --json number,state --jq '[.[] | select(.state != "CLOSED") | "#\(.number) (\(.state))"] | join(", ")')
+          if [[ -z "$prs" ]]; then
+            echo "::error::$RAMO foi para a main sem PR aberto ou mergeado para a dev"
+            exit 1
+          fi
+          echo "$RAMO -> dev: $prs"
+
+  deploy-producao:
+    needs: [origem, promover]
+    # O build pulado na promoção pularia este job junto.
+    if: ${{ !cancelled() && needs.promover.result == 'success' }}
+    runs-on: ubuntu-latest
+    # PUT (5 min) + espera (3 min) + reversão (5 min), com folga para não morrer revertendo.
+    timeout-minutes: 20
+    environment:
+      name: producao
+      url: ${{ vars.APP_URL }}
+    env:
+      PORTAINER_URL: ${{ vars.PORTAINER_URL }}
+    steps:
+      # O if do job não enxerga variáveis do Environment.
+      - name: Produção configurada
+        id: config
+        run: |
+          if [[ -z "$PORTAINER_URL" ]]; then
+            echo "::warning::Environment producao sem PORTAINER_URL: deploy pulado, a etiqueta producao já foi movida"
+            echo "configurada=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configurada=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.config.outputs.configurada == 'true'
+        uses: actions/checkout@v7
+
+      - name: Deploy em produção pela API do Portainer
+        if: steps.config.outputs.configurada == 'true'
+        env:
+          PORTAINER_STACK_ID: ${{ vars.PORTAINER_STACK_ID }}
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID }}
+          PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}
+          APP_URL: ${{ vars.APP_URL }}
+          IMAGE_TAG: ${{ needs.origem.outputs.tag }}
+        run: python3 scripts/deploy_portainer.py

@@ -53,3 +53,25 @@ func TestRenderSkipsFrontendWithoutFrontend(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderSkipsFrontendOnlyFilesWithoutFrontend(t *testing.T) {
+	const adr = "docs/adr/0002-duas-imagens-uma-unidade-de-deploy.md"
+	fsys := fstest.MapFS{
+		"project/docs/adr/0001-deploy-pela-api-do-portainer.md.tmpl": {Data: []byte("0001")},
+		"project/" + adr + ".tmpl":                                   {Data: []byte("0002")},
+	}
+
+	for _, temFrontend := range []bool{false, true} {
+		dest := t.TempDir()
+		if err := render(fsys, dest, NewData("p", temFrontend)); err != nil {
+			t.Fatalf("render() error = %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, "docs", "adr", "0001-deploy-pela-api-do-portainer.md")); err != nil {
+			t.Errorf("ADR-0001 deveria existir sempre: %v", err)
+		}
+		_, err := os.Stat(filepath.Join(dest, filepath.FromSlash(adr)))
+		if gerado := err == nil; gerado != temFrontend {
+			t.Errorf("TemFrontend=%v: ADR-0002 gerado = %v", temFrontend, gerado)
+		}
+	}
+}

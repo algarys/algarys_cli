@@ -1,0 +1,11 @@
+# ADR-0003 — dev sobe homolog, main promove a mesma imagem para produção
+
+**Decisão.** O merge na `dev` builda as imagens uma única vez, com a tag `sha-<commit>`, e sobe a stack de homolog. O merge `dev → main` não recompila: pega o `head.sha` do PR mergeado, confere que `:homolog` aponta para o mesmo digest, reetiqueta essas mesmas imagens como `:producao` e atualiza a stack de produção. O PR `dev → main` só aceita merge commit, por isso a `main` não tem a regra de histórico linear.
+
+**Por quê.** Homolog só vale alguma coisa se o que vai para produção é exatamente o que foi validado lá; recompilar na `main` geraria outro artefato, com outro digest. Squash ou rebase no `dev → main` criariam SHAs novos na `main` e fariam as duas branches divergirem a cada promoção, e o `head.sha` do PR é o que liga o commit da `main` à imagem que rodou em homolog. Pelo mesmo motivo o `Protect main` não exige branch atualizado: cada promoção cria na `main` um merge commit que a `dev` não tem.
+
+**Gate humano.** O plano Team do GitHub não tem revisor obrigatório em Environment de repositório privado (só Enterprise). Por isso a aprovação fica no PR: o `Protect main` exige 1 aprovação de qualquer membro, sem `CODEOWNERS`. O Environment `producao` só restringe o deploy à `main`.
+
+**Exceção: hotfix.** Um PR `hotfix/* → main` é a única origem além da `dev` aceita na `main`. No merge, a `main` roda o CI, builda a imagem a partir do próprio commit e vai direto para produção, sem passar por homolog; é a única vez em que produção recebe uma imagem que não rodou antes em lugar nenhum. O mesmo branch abre um PR para a `dev`, e o run fica vermelho se esse PR não existir no merge do hotfix, sem segurar o deploy.
+
+**Consequência.** Produção roda no servidor do cliente, nunca na VPS da Algarys. Enquanto o cliente não tiver servidor, as variáveis do Environment `producao` ficam vazias e o deploy de produção é pulado, mas a reetiquetagem acontece do mesmo jeito.
