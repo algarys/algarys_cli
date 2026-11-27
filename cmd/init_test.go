@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,5 +152,88 @@ func TestGeneratedReadmeDocumentsPipeline(t *testing.T) {
 	}
 	if strings.Index(readme, "## Pipeline") > strings.Index(readme, "## Estrutura do Projeto") {
 		t.Error("Pipeline deveria vir logo depois da governança de branches")
+	}
+}
+
+func TestProjectStepsWithFrontendGenerateLockAndTypesBeforeInitialCommit(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "meu-projeto")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls []string
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		if name == "npm" {
+			if dir != filepath.Join(projectDir, "frontend") {
+				t.Errorf("npm rodou em %s, deveria rodar em frontend/", dir)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "package.json")); err != nil {
+				t.Errorf("package.json deveria existir antes do npm: %v", err)
+			}
+		}
+		calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+		return "", nil
+	})
+
+	config := ProjectConfig{Name: projectDir, PythonVersion: "3.12", TemFrontend: true}
+	for _, step := range projectSteps(config, "meu_projeto") {
+		if err := step.action(); err != nil {
+			t.Fatalf("%s: %v", step.message, err)
+		}
+	}
+
+	want := []string{
+		"uv sync",
+		"uv run python scripts/gerar_contrato.py",
+		"npm install --no-audit --no-fund",
+		"npm run types:api",
+		"git init -q -b main",
+	}
+	if got := strings.Join(calls[:len(want)], "\n"); got != strings.Join(want, "\n") {
+		t.Errorf("comandos = %q, want %q", calls, want)
+	}
+}
+
+func TestRequireNodeExplainsWhatIsMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := requireNode()
+	if err == nil || !strings.Contains(err.Error(), "Node") || !strings.Contains(err.Error(), "npm") {
+		t.Errorf("requireNode() sem npm no PATH = %v, quer erro citando Node e npm", err)
+	}
+}
+
+func TestRunStepsStopsAtFirstFailure(t *testing.T) {
+	var executados []string
+	passo := func(nome string, err error) initStep {
+		return initStep{message: nome, action: func() error {
+			executados = append(executados, nome)
+			return err
+		}}
+	}
+	falha := errors.New("registro fora do ar")
+
+	err := runSteps([]initStep{
+		passo("uv", nil),
+		passo("npm", falha),
+		passo("git", nil),
+	}, func(step initStep) error { return step.action() })
+
+	if !errors.Is(err, falha) || !strings.Contains(err.Error(), "npm") {
+		t.Errorf("runSteps() = %v, quer o erro do passo npm", err)
+	}
+	if strings.Join(executados, ",") != "uv,npm" {
+		t.Errorf("executados = %v: nada roda depois da falha (o git não pode commitar um projeto incompleto)", executados)
+	}
+}
+
+func TestNextStepsStartFrontendInAnotherTerminalWithEnv(t *testing.T) {
+	semFront := strings.Join(nextSteps(ProjectConfig{Name: "p"}), "\n")
+	if semFront != "cd p\nuv sync --all-extras\nuv run python -m app" {
+		t.Errorf("sem front os próximos passos mudaram:\n%s", semFront)
+	}
+
+	comFront := nextSteps(ProjectConfig{Name: "p", TemFrontend: true})
+	if got := comFront[len(comFront)-1]; got != "em outro terminal: cd p/frontend && cp .env.example .env && npm run dev" {
+		t.Errorf("último passo com front = %q", got)
 	}
 }

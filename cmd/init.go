@@ -18,6 +18,7 @@ type ProjectConfig struct {
 	Name          string
 	Description   string
 	PythonVersion string
+	TemFrontend   bool
 	CreateGitHub  bool
 	GitHubOrg     string
 }
@@ -100,6 +101,13 @@ func runInit(cmd *cobra.Command, args []string) {
 				Value(&config.PythonVersion),
 
 			huh.NewConfirm().
+				Title("🖥️  O projeto tem frontend?").
+				Description("Vite + React servido por um nginx que faz proxy de /api (requer Node 22)").
+				Affirmative("Sim").
+				Negative("Não").
+				Value(&config.TemFrontend),
+
+			huh.NewConfirm().
 				Title("🐙 Criar repositório no GitHub?").
 				Description("Será criado em github.com/algarys (requer gh auth login)").
 				Affirmative("Sim").
@@ -117,6 +125,13 @@ func runInit(cmd *cobra.Command, args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "Erro: %v\n", err)
 		os.Exit(1)
+	}
+
+	if config.TemFrontend {
+		if err := requireNode(); err != nil {
+			fmt.Println(ui.RenderError(err.Error()))
+			os.Exit(1)
+		}
 	}
 
 	// Normalizar nome do projeto
@@ -146,19 +161,21 @@ func runInit(cmd *cobra.Command, args []string) {
 	}
 
 	// Executar etapas com spinners
-	steps := projectSteps(config, moduleName)
-	for _, step := range steps {
+	err = runSteps(projectSteps(config, moduleName), func(step initStep) error {
 		spinner := ui.NewSpinner(step.icon + "  " + step.message)
 		spinner.Start()
 		time.Sleep(300 * time.Millisecond) // Pequeno delay para visual
-
-		err := step.action()
-
-		if err == nil {
-			spinner.Success(step.message)
-		} else {
-			spinner.Warning(fmt.Sprintf("%s: %v", step.message, err))
+		if err := step.action(); err != nil {
+			spinner.Error(fmt.Sprintf("%s: %v", step.message, err))
+			return err
 		}
+		spinner.Success(step.message)
+		return nil
+	})
+	if err != nil {
+		fmt.Println()
+		fmt.Println(ui.RenderError(fmt.Sprintf("Init interrompido antes do commit inicial: corrija, apague o diretório '%s' e rode de novo", config.Name)))
+		os.Exit(1)
 	}
 
 	// Criar repositório no GitHub
@@ -194,7 +211,7 @@ func runInit(cmd *cobra.Command, args []string) {
 				spinner2.Start()
 				time.Sleep(300 * time.Millisecond)
 
-				if err := configureRulesets(repoName, config.GitHubOrg, false); err == nil {
+				if err := configureRulesets(repoName, config.GitHubOrg, config.TemFrontend); err == nil {
 					spinner2.Success("Rulesets dev e main configurados")
 				} else {
 					spinner2.Warning(fmt.Sprintf("Governança não configurada: %v", err))
@@ -250,9 +267,9 @@ func runInit(cmd *cobra.Command, args []string) {
 		Foreground(ui.Primary).
 		PaddingLeft(4)
 
-	fmt.Println(cmdStyle.Render(fmt.Sprintf("cd %s", config.Name)))
-	fmt.Println(cmdStyle.Render("uv sync --all-extras"))
-	fmt.Println(cmdStyle.Render("uv run python -m app"))
+	for _, line := range nextSteps(config) {
+		fmt.Println(cmdStyle.Render(line))
+	}
 	fmt.Println()
 
 	if len(environmentLines) > 0 {
@@ -271,6 +288,25 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println()
 }
 
+// O uv run python -m app prende o terminal, por isso o front vai em outro.
+func nextSteps(config ProjectConfig) []string {
+	steps := []string{"cd " + config.Name, "uv sync --all-extras", "uv run python -m app"}
+	if config.TemFrontend {
+		steps = append(steps, fmt.Sprintf("em outro terminal: cd %s/frontend && cp .env.example .env && npm run dev", config.Name))
+	}
+	return steps
+}
+
+// Para no primeiro erro: um passo seguinte, como o commit inicial, gravaria um projeto incompleto.
+func runSteps(steps []initStep, run func(initStep) error) error {
+	for _, step := range steps {
+		if err := run(step); err != nil {
+			return fmt.Errorf("%s: %w", step.message, err)
+		}
+	}
+	return nil
+}
+
 type initStep struct {
 	icon    string
 	message string
@@ -278,14 +314,14 @@ type initStep struct {
 }
 
 func projectSteps(config ProjectConfig, moduleName string) []initStep {
-	return []initStep{
+	steps := []initStep{
 		{ui.IconFolder, "Criando estrutura de diretórios", func() error {
 			createProjectStructure(config.Name, moduleName)
 			return nil
 		}},
 		{ui.IconFile, "Gerando arquivos de configuração", func() error {
 			createConfigFiles(config.Name, moduleName, config.Description, config.PythonVersion)
-			data := templates.NewData(config.Name, false)
+			data := templates.NewData(config.Name, config.TemFrontend)
 			data.PythonVersion = config.PythonVersion
 			return templates.RenderProject(config.Name, data)
 		}},
@@ -293,10 +329,16 @@ func projectSteps(config ProjectConfig, moduleName string) []initStep {
 		{ui.IconPython, "Configurando ambiente UV", func() error {
 			return initUV(config.Name)
 		}},
-		{ui.IconGit, "Inicializando repositório Git", func() error {
-			return initLocalGit(config.Name)
-		}},
 	}
+	if config.TemFrontend {
+		// Depois do openapi.json, que o types:api lê.
+		steps = append(steps, initStep{ui.IconFile, "Instalando o frontend", func() error {
+			return initFrontend(config.Name)
+		}})
+	}
+	return append(steps, initStep{ui.IconGit, "Inicializando repositório Git", func() error {
+		return initLocalGit(config.Name)
+	}})
 }
 
 func createProjectStructure(projectName, moduleName string) {
