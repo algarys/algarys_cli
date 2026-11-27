@@ -75,8 +75,23 @@ func TestGeneratedProjectDependsOnPostgresAndAlembic(t *testing.T) {
 	}
 
 	envExample := generatedConfigFile(t, ".env.example")
-	if !strings.Contains(envExample, "DATABASE_URL=postgresql+asyncpg://") {
-		t.Errorf(".env.example deveria usar o driver asyncpg:\n%s", envExample)
+	// Usuário, senha, banco e porta do db em templates/project/docker-compose.yml.tmpl.
+	if !strings.Contains(envExample, "DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/db\n") {
+		t.Errorf(".env.example deveria apontar para o db do docker-compose.yml:\n%s", envExample)
+	}
+}
+
+func TestGeneratedReadmeExplainsLocalAndProductionCompose(t *testing.T) {
+	readme := generatedConfigFile(t, "README.md")
+	for _, expected := range []string{
+		"cp .env.example .env\ndocker compose up -d --wait",
+		"`docker-compose.yml`",
+		"`docker-compose.prod.yml`",
+		"Portainer",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Errorf("README.md não contém %q", expected)
+		}
 	}
 }
 
@@ -228,7 +243,7 @@ func TestRunStepsStopsAtFirstFailure(t *testing.T) {
 
 func TestNextStepsStartFrontendInAnotherTerminalWithEnv(t *testing.T) {
 	semFront := strings.Join(nextSteps(ProjectConfig{Name: "p"}), "\n")
-	if semFront != "cd p\nuv sync --all-extras\nuv run python -m app" {
+	if semFront != "cd p\ncp .env.example .env\ndocker compose up -d --wait\nuv sync --all-extras\nuv run python -m app" {
 		t.Errorf("sem front os próximos passos mudaram:\n%s", semFront)
 	}
 

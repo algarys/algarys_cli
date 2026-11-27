@@ -290,7 +290,10 @@ func runInit(cmd *cobra.Command, args []string) {
 
 // O uv run python -m app prende o terminal, por isso o front vai em outro.
 func nextSteps(config ProjectConfig) []string {
-	steps := []string{"cd " + config.Name, "uv sync --all-extras", "uv run python -m app"}
+	steps := []string{
+		"cd " + config.Name, "cp .env.example .env", "docker compose up -d --wait",
+		"uv sync --all-extras", "uv run python -m app",
+	}
 	if config.TemFrontend {
 		steps = append(steps, fmt.Sprintf("em outro terminal: cd %s/frontend && cp .env.example .env && npm run dev", config.Name))
 	}
@@ -1033,8 +1036,13 @@ uv sync --all-extras
 ### Executar
 
 `+"```bash"+`
+cp .env.example .env
+docker compose up -d --wait
 uv run python -m app
 `+"```"+`
+
+O `+"`docker-compose.yml`"+` sobe só o Postgres local, com as credenciais do `+"`DATABASE_URL`"+` do `+"`.env.example`"+`.
+O `+"`docker-compose.prod.yml`"+` é o modelo da stack do Portainer (imagens do GHCR, `+"`stack.env`"+` e rede do proxy) e não serve para rodar na máquina.
 
 ### Testes
 
