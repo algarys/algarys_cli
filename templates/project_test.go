@@ -192,7 +192,6 @@ func TestRenderProjectGeneratesHomologDeploy(t *testing.T) {
 		"REGISTRO: ghcr.io/algarys/algarys_meu-projeto",
 		`ANTES: ${{ github.event.before }}`,
 		`[[ "$ANTES" =~ ^0+$ ]]`,
-		"if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'dev'",
 		"uses: ./.github/workflows/ci.yml",
 		"needs: ci",
 		"packages: write",
@@ -202,8 +201,7 @@ func TestRenderProjectGeneratesHomologDeploy(t *testing.T) {
 		`if [[ -z "$PORTAINER_URL" ]]; then`,
 		"PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}",
 		`IMAGE_TAG="sha-${GITHUB_SHA::7}" python3 scripts/deploy_portainer.py`,
-		"if: needs.deploy-homolog.outputs.configurada == 'true'",
-		`-t "$REGISTRO-api:homolog" "$REGISTRO-api:sha-${GITHUB_SHA::7}"`,
+		"needs.deploy-homolog.result == 'success' && needs.deploy-homolog.outputs.configurada == 'true'",
 	)
 	if strings.Contains(deploy, "<%") {
 		t.Error("deploy.yml ficou com delimitador de template")
@@ -239,4 +237,34 @@ func TestRenderProjectGeneratesPortainerDeployScript(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestRenderProjectGeneratesProductionDeploy(t *testing.T) {
+	dest := renderDefault(t)
+	deploy := readFile(t, filepath.Join(dest, ".github", "workflows", "deploy.yml"))
+
+	assertContains(t, "deploy.yml", deploy,
+		"  IMAGENS: api\n",
+		"  ci:\n    needs: [criacao, origem]\n",
+		"(github.ref_name == 'dev' || needs.origem.outputs.tipo == 'hotfix')",
+		"  build:\n    needs: ci\n    if: ${{ !cancelled() && needs.ci.result == 'success' }}",
+		"needs.build.result == 'success' && github.ref_name == 'dev' }}",
+		`for imagem in $IMAGENS; do`,
+		`-t "$REGISTRO-$imagem:homolog" "$REGISTRO-$imagem:sha-${GITHUB_SHA::7}"`,
+		"  origem:\n    needs: criacao\n    if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'main'",
+		"  promover:\n    needs: [origem, build]\n",
+		"  cobrar-volta-dev:\n    needs: origem\n",
+		"  deploy-producao:\n    needs: [origem, promover]\n",
+		"if: ${{ !cancelled() && needs.promover.result == 'success' }}",
+		"      name: producao\n",
+		"Environment producao sem PORTAINER_URL: deploy pulado",
+		"IMAGE_TAG: ${{ needs.origem.outputs.tag }}\n        run: python3 scripts/deploy_portainer.py",
+	)
+
+	comFront := t.TempDir()
+	if err := RenderProject(comFront, NewData("meu-projeto", true)); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, "deploy.yml com front",
+		readFile(t, filepath.Join(comFront, ".github", "workflows", "deploy.yml")), "  IMAGENS: api frontend\n")
 }
