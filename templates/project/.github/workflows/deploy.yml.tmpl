@@ -51,6 +51,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+<%- if .TemFrontend %>
+    strategy:
+      matrix:
+        include:
+          - imagem: api
+            contexto: .
+          - imagem: frontend
+            contexto: frontend
+<%- end %>
     steps:
       - uses: actions/checkout@v7
 
@@ -68,12 +77,21 @@ jobs:
       - name: Build e push
         uses: docker/build-push-action@v7
         with:
+<%- if .TemFrontend %>
+          context: ${{ matrix.contexto }}
+          push: true
+          build-args: GIT_SHA=${{ env.SHA_CURTO }}
+          tags: ${{ env.REGISTRO }}-${{ matrix.imagem }}:sha-${{ env.SHA_CURTO }}
+          cache-from: type=gha,scope=${{ matrix.imagem }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.imagem }}
+<%- else %>
           context: .
           push: true
           build-args: GIT_SHA=${{ env.SHA_CURTO }}
           tags: ${{ env.REGISTRO }}-api:sha-${{ env.SHA_CURTO }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
+<%- end %>
 
   deploy-homolog:
     needs: build

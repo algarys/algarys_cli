@@ -68,6 +68,37 @@ jobs:
 
       - name: Testes (cobertura de 100%)
         run: uv run pytest tests --cov
+<%- if .TemFrontend %>
+
+  front:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependências
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tipos gerados em dia com o contrato
+        run: |
+          npm run types:api
+          git diff --exit-code -- src/types/api.ts
+
+      - name: Build
+        run: npm run build
+<%- end %>
 
   stack:
     runs-on: ubuntu-latest
@@ -88,7 +119,7 @@ jobs:
         run: uv run --frozen python scripts/verificar_stack.py
 
   imagem:
-    needs: [back, stack]
+    needs: [back<% if .TemFrontend %>, front<% end %>, stack]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -98,11 +129,21 @@ jobs:
         run: |
           echo "SHA_CURTO=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+<%- if .TemFrontend %>
+
+      - name: Build das imagens
+        run: |
+          docker build -t "<% .Registro %>-api:$IMAGE_TAG" \
+            --build-arg GIT_SHA="$SHA_CURTO" .
+          docker build -t "<% .Registro %>-frontend:$IMAGE_TAG" \
+            --build-arg GIT_SHA="$SHA_CURTO" frontend
+<%- else %>
 
       - name: Build da imagem
         run: |
           docker build -t "<% .Registro %>-api:$IMAGE_TAG" \
             --build-arg GIT_SHA="$SHA_CURTO" .
+<%- end %>
 
       - name: Sobe a stack
         run: |
@@ -110,6 +151,18 @@ jobs:
           docker network create nginx-proxy-manager_default
           docker compose -f docker-compose.prod.yml --env-file stack.env.example \
             up -d --wait --wait-timeout 180
+<%- if .TemFrontend %>
+
+      - name: Smoke test pelo nginx
+        run: |
+          acessa() {
+            docker compose -f docker-compose.prod.yml --env-file stack.env.example \
+              exec -T frontend wget -qO- "http://127.0.0.1$1"
+          }
+          acessa /api/health | jq -e --arg v "$SHA_CURTO" '.status == "ok" and .version == $v'
+          acessa /rota-da-spa | grep -q '<div id="root">'
+          test "$(acessa /version.txt)" = "$SHA_CURTO"
+<%- else %>
 
       # A imagem não tem curl nem wget: o /health é lido com o Python da própria api.
       - name: Smoke test do /health
@@ -117,6 +170,7 @@ jobs:
           docker compose -f docker-compose.prod.yml --env-file stack.env.example \
             exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())" \
             | jq -e --arg v "$SHA_CURTO" '.status == "ok" and .version == $v'
+<%- end %>
 
       - name: Logs da stack
         if: failure()
