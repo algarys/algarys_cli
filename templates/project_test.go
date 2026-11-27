@@ -323,3 +323,81 @@ func TestRenderProjectGeneratesADRs(t *testing.T) {
 		"# ADR-0002", "`…-api` e `…-frontend`",
 	)
 }
+
+func renderWithFrontend(t *testing.T) string {
+	t.Helper()
+	dest := t.TempDir()
+	if err := RenderProject(dest, NewData("meu-projeto", true)); err != nil {
+		t.Fatalf("RenderProject() error = %v", err)
+	}
+	return dest
+}
+
+func TestRenderProjectPutsOnlyFrontendOnProxyNetwork(t *testing.T) {
+	compose := readFile(t, filepath.Join(renderWithFrontend(t), "docker-compose.prod.yml"))
+
+	assertContains(t, "docker-compose.prod.yml com front", compose,
+		"image: ghcr.io/algarys/algarys_meu-projeto-frontend:${IMAGE_TAG:?",
+		"  frontend:\n",
+		"      api:\n        condition: service_healthy",
+		`test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]`,
+	)
+	if t.Failed() {
+		return
+	}
+	api := compose[strings.Index(compose, "  api:\n"):strings.Index(compose, "  frontend:\n")]
+	if strings.Contains(api, "nginx-proxy-manager_default") {
+		t.Errorf("com front, só o frontend entra na rede do proxy:\n%s", api)
+	}
+	frontend := compose[strings.Index(compose, "  frontend:\n"):strings.Index(compose, "\nnetworks:")]
+	assertContains(t, "serviço frontend", frontend, "- nginx-proxy-manager_default")
+	if strings.Contains(compose, "ports:") {
+		t.Error("docker-compose.prod.yml não deveria publicar portas")
+	}
+}
+
+func TestRenderProjectGeneratesFrontend(t *testing.T) {
+	front := filepath.Join(renderWithFrontend(t), "frontend")
+
+	assertContains(t, "package.json", readFile(t, filepath.Join(front, "package.json")),
+		`"name": "meu-projeto-frontend"`,
+		`"lint": "eslint ."`,
+		`"types:api": "openapi-typescript ../openapi.json -o src/types/api.ts"`,
+		`"@tanstack/react-query"`, `"react": "^19`, `"react-router"`,
+		`"prettier"`, `"vite"`,
+	)
+	assertContains(t, "Dockerfile do front", readFile(t, filepath.Join(front, "Dockerfile")),
+		"FROM node:22-alpine AS build",
+		"RUN npm ci",
+		"FROM nginx:",
+		"ARG GIT_SHA=dev",
+		`echo "$GIT_SHA" > /usr/share/nginx/html/version.txt`,
+	)
+	assertContains(t, "nginx.conf", readFile(t, filepath.Join(front, "nginx.conf")),
+		"location /api/ {\n        proxy_pass http://api:8000/;",
+		"location = /version.txt {\n        add_header Cache-Control \"no-store\";",
+		"try_files $uri $uri/ /index.html;",
+	)
+	assertContains(t, "frontend/.gitignore", readFile(t, filepath.Join(front, ".gitignore")),
+		"\n!*.json\n", "node_modules/",
+	)
+	vite := readFile(t, filepath.Join(front, "vite.config.ts"))
+	assertContains(t, "vite.config.ts", vite,
+		`if (command === "serve" && !env.VITE_PROXY_TARGET) {`,
+		"target: env.VITE_PROXY_TARGET,",
+	)
+	if strings.Contains(vite, "localhost") {
+		t.Error("vite.config.ts não deveria ter o destino do proxy hardcoded")
+	}
+	assertContains(t, "index.html", readFile(t, filepath.Join(front, "index.html")),
+		"<title>meu-projeto</title>", `<div id="root"></div>`,
+	)
+	for _, arquivo := range []string{
+		".gitignore", ".dockerignore", ".prettierrc", "eslint.config.js", "vite.config.ts",
+		"tsconfig.json", "src/main.tsx", "src/app/router.tsx", "src/pages/home/HomePage.tsx",
+	} {
+		if _, err := os.Stat(filepath.Join(front, filepath.FromSlash(arquivo))); err != nil {
+			t.Errorf("frontend/%s deveria existir: %v", arquivo, err)
+		}
+	}
+}

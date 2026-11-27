@@ -39,8 +39,9 @@ services:
       db:
         condition: service_healthy
 
-  # O healthcheck em /health vem do HEALTHCHECK da imagem. Sem front, a api
-  # entra na rede do proxy reverso.
+  # O healthcheck em /health vem do HEALTHCHECK da imagem. <% if .TemFrontend %>Com front, a api só
+  # é alcançada pelo nginx do frontend (ADR-0002).<% else %>Sem front, a api
+  # entra na rede do proxy reverso.<% end %>
   api:
     <<: *api
     restart: unless-stopped
@@ -49,6 +50,21 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+<%- if .TemFrontend %>
+
+  frontend:
+    image: <% .Registro %>-frontend:${IMAGE_TAG:?defina IMAGE_TAG nas variáveis da stack}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging: *logging
+<%- end %>
     networks:
       - default
       - nginx-proxy-manager_default
