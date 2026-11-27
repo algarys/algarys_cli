@@ -182,6 +182,34 @@ func TestRenderProjectGeneratesCI(t *testing.T) {
 	}
 }
 
+func TestRenderProjectGeneratesHomologDeploy(t *testing.T) {
+	dest := renderDefault(t)
+	deploy := readFile(t, filepath.Join(dest, ".github", "workflows", "deploy.yml"))
+
+	assertContains(t, "deploy.yml", deploy,
+		"on:\n  push:\n    branches: [dev, main]",
+		"group: deploy-${{ github.ref_name }}\n  cancel-in-progress: false",
+		"REGISTRO: ghcr.io/algarys/algarys_meu-projeto",
+		`ANTES: ${{ github.event.before }}`,
+		`[[ "$ANTES" =~ ^0+$ ]]`,
+		"if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'dev'",
+		"uses: ./.github/workflows/ci.yml",
+		"needs: ci",
+		"packages: write",
+		"tags: ${{ env.REGISTRO }}-api:sha-${{ env.SHA_CURTO }}",
+		"cache-from: type=gha,scope=api",
+		"name: homolog",
+		`if [[ -z "$PORTAINER_URL" ]]; then`,
+		"PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}",
+		`IMAGE_TAG="sha-${GITHUB_SHA::7}" python3 scripts/deploy_portainer.py`,
+		"if: needs.deploy-homolog.outputs.configurada == 'true'",
+		`-t "$REGISTRO-api:homolog" "$REGISTRO-api:sha-${GITHUB_SHA::7}"`,
+	)
+	if strings.Contains(deploy, "<%") {
+		t.Error("deploy.yml ficou com delimitador de template")
+	}
+}
+
 func TestRenderProjectGeneratesPortainerDeployScript(t *testing.T) {
 	casos := map[bool][]string{
 		false: {`IMAGENS = ("api",)`, `HEALTH = "/health"`},

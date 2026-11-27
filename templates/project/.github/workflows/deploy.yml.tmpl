@@ -1,0 +1,127 @@
+name: Deploy
+
+on:
+  push:
+    branches: [dev, main]
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRO: <% .Registro %>
+
+jobs:
+  # O push que cria a branch (o do init, por exemplo) não tem o que publicar.
+  criacao:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      nova: ${{ steps.push.outputs.nova }}
+    steps:
+      - id: push
+        env:
+          ANTES: ${{ github.event.before }}
+        run: |
+          if [[ "$ANTES" =~ ^0+$ ]]; then
+            echo "::warning::push que cria $GITHUB_REF_NAME: CI, imagem e deploy pulados"
+            echo "nova=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nova=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    needs: criacao
+    if: needs.criacao.outputs.nova == 'false' && github.ref_name == 'dev'
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Versão
+        run: echo "SHA_CURTO=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          build-args: GIT_SHA=${{ env.SHA_CURTO }}
+          tags: ${{ env.REGISTRO }}-api:sha-${{ env.SHA_CURTO }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  deploy-homolog:
+    needs: build
+    runs-on: ubuntu-latest
+    # PUT (5 min) + espera (3 min) + reversão (5 min), com folga para não morrer revertendo.
+    timeout-minutes: 20
+    environment:
+      name: homolog
+      url: ${{ vars.APP_URL }}
+    outputs:
+      configurada: ${{ steps.config.outputs.configurada }}
+    env:
+      PORTAINER_URL: ${{ vars.PORTAINER_URL }}
+    steps:
+      # O if do job não enxerga variáveis do Environment.
+      - name: Homolog configurada
+        id: config
+        run: |
+          if [[ -z "$PORTAINER_URL" ]]; then
+            echo "::warning::Environment homolog sem PORTAINER_URL: deploy pulado, a etiqueta homolog não muda"
+            echo "configurada=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configurada=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.config.outputs.configurada == 'true'
+        uses: actions/checkout@v7
+
+      - name: Deploy pela API do Portainer
+        if: steps.config.outputs.configurada == 'true'
+        env:
+          PORTAINER_STACK_ID: ${{ vars.PORTAINER_STACK_ID }}
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID }}
+          PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: IMAGE_TAG="sha-${GITHUB_SHA::7}" python3 scripts/deploy_portainer.py
+
+  etiqueta-homolog:
+    needs: deploy-homolog
+    if: needs.deploy-homolog.outputs.configurada == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # homolog é só etiqueta: a stack roda o sha-…, nunca uma tag móvel (ADR-0001).
+      - name: homolog aponta para o que está no ar
+        run: |
+          docker buildx imagetools create \
+            -t "$REGISTRO-api:homolog" "$REGISTRO-api:sha-${GITHUB_SHA::7}"
