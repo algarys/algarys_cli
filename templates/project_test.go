@@ -401,3 +401,37 @@ func TestRenderProjectGeneratesFrontend(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderProjectGeneratesFrontCIAndBuild(t *testing.T) {
+	dest := renderWithFrontend(t)
+	ci := readFile(t, filepath.Join(dest, ".github", "workflows", "ci.yml"))
+
+	assertContains(t, "ci.yml com front", ci,
+		"  front:\n",
+		"working-directory: frontend",
+		"actions/setup-node@v7",
+		"cache-dependency-path: frontend/package-lock.json",
+		"npm ci",
+		"npm run lint",
+		"npm run types:api\n          git diff --exit-code -- src/types/api.ts",
+		"npm run build",
+		"needs: [back, front, stack]",
+		`docker build -t "ghcr.io/algarys/algarys_meu-projeto-frontend:$IMAGE_TAG" \
+            --build-arg GIT_SHA="$SHA_CURTO" frontend`,
+		"exec -T frontend wget -qO- \"http://127.0.0.1$1\"",
+		`acessa /api/health | jq -e --arg v "$SHA_CURTO" '.status == "ok" and .version == $v'`,
+		`acessa /rota-da-spa | grep -q '<div id="root">'`,
+		`test "$(acessa /version.txt)" = "$SHA_CURTO"`,
+	)
+	if strings.Contains(ci, "exec -T api") {
+		t.Error("com front, o smoke test passa pelo nginx")
+	}
+
+	deploy := readFile(t, filepath.Join(dest, ".github", "workflows", "deploy.yml"))
+	assertContains(t, "deploy.yml com front", deploy,
+		"          - imagem: frontend\n            contexto: frontend\n",
+		"context: ${{ matrix.contexto }}",
+		"tags: ${{ env.REGISTRO }}-${{ matrix.imagem }}:sha-${{ env.SHA_CURTO }}",
+		"cache-from: type=gha,scope=${{ matrix.imagem }}",
+	)
+}
