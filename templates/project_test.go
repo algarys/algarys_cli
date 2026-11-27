@@ -378,6 +378,9 @@ func TestRenderProjectGeneratesFrontend(t *testing.T) {
 		"location = /version.txt {\n        add_header Cache-Control \"no-store\";",
 		"try_files $uri $uri/ /index.html;",
 	)
+	assertContains(t, "frontend/.gitignore", readFile(t, filepath.Join(front, ".gitignore")),
+		"\n!*.json\n", "node_modules/",
+	)
 	assertContains(t, "index.html", readFile(t, filepath.Join(front, "index.html")),
 		"<title>meu-projeto</title>", `<div id="root"></div>`,
 	)
