@@ -99,7 +99,7 @@ func stepScript(t *testing.T, workflow, nome string) string {
 	return ""
 }
 
-// runStep roda o script como o runner: bash -eo pipefail, com docker e gh falsos no PATH.
+// runStep roda o script como o runner sem shell: explícito (bash -e, sem pipefail), com docker e gh falsos no PATH.
 func runStep(t *testing.T, script string, env map[string]string, registro, ghJSON string) stepRun {
 	t.Helper()
 	if _, err := exec.LookPath("jq"); err != nil {
@@ -122,7 +122,7 @@ func runStep(t *testing.T, script string, env map[string]string, registro, ghJSO
 		}
 	}
 
-	cmd := exec.Command("bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script)
+	cmd := exec.Command("bash", "--noprofile", "--norc", "-e", "-c", script)
 	cmd.Env = []string{
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"FAKE_DIR=" + dir,

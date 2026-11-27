@@ -196,8 +196,11 @@ jobs:
 
       - name: producao aponta para a mesma imagem, sem rebuild
         run: |
+          # Sem shell: explícito o runner não liga pipefail; o inspect tem que falhar sozinho.
           digest() {
-            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest
+            local manifesto
+            manifesto=$(docker buildx imagetools inspect "$1" --format '{{json .Manifest}}') || return 1
+            jq -r .digest <<<"$manifesto"
           }
           # Confere todas antes de reetiquetar, para produção nunca ficar com só uma trocada.
           for imagem in $IMAGENS; do
