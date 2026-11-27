@@ -162,6 +162,7 @@ func runInit(cmd *cobra.Command, args []string) {
 	}
 
 	// Criar repositório no GitHub
+	var environmentLines []string
 	if config.CreateGitHub {
 		// Verificar se está autenticado
 		if !IsLoggedIn() {
@@ -193,11 +194,28 @@ func runInit(cmd *cobra.Command, args []string) {
 				spinner2.Start()
 				time.Sleep(300 * time.Millisecond)
 
-				if err := configureRulesets(repoName, config.GitHubOrg); err == nil {
+				if err := configureRulesets(repoName, config.GitHubOrg, false); err == nil {
 					spinner2.Success("Rulesets dev e main configurados")
 				} else {
 					spinner2.Warning(fmt.Sprintf("Governança não configurada: %v", err))
 				}
+
+				spinnerRepo := ui.NewSpinner(ui.IconGitHub + "  Definindo dev como branch padrão")
+				spinnerRepo.Start()
+				if err := configureRepoSettings(repoName, config.GitHubOrg); err == nil {
+					spinnerRepo.Success("dev como branch padrão e branches apagadas após o merge")
+				} else {
+					spinnerRepo.Warning(fmt.Sprintf("Configuração do repositório pendente: %v", err))
+				}
+
+				spinnerEnv := ui.NewSpinner(ui.IconLock + "  Criando environments homolog e producao")
+				spinnerEnv.Start()
+				if err := configureEnvironments(repoName, config.GitHubOrg); err == nil {
+					spinnerEnv.Success("Environments homolog (dev) e producao (main) criados")
+				} else {
+					spinnerEnv.Warning(fmt.Sprintf("Environments não criados (crie à mão): %v", err))
+				}
+				environmentLines = environmentChecklist(repoName, config.GitHubOrg)
 			} else {
 				spinner.Warning(fmt.Sprintf("Repositório não criado: %v", err))
 			}
@@ -236,6 +254,13 @@ func runInit(cmd *cobra.Command, args []string) {
 	fmt.Println(cmdStyle.Render("uv sync --all-extras"))
 	fmt.Println(cmdStyle.Render("uv run python -m app"))
 	fmt.Println()
+
+	if len(environmentLines) > 0 {
+		for _, line := range environmentLines {
+			fmt.Println(cmdStyle.Render(line))
+		}
+		fmt.Println()
+	}
 
 	// Dica
 	tipStyle := lipgloss.NewStyle().
