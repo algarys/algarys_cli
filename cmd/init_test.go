@@ -111,7 +111,7 @@ func TestEnvExampleDatabaseURLMatchesLocalCompose(t *testing.T) {
 	for _, expected := range []string{
 		"POSTGRES_USER: " + match[1],
 		"POSTGRES_PASSWORD: " + match[2],
-		fmt.Sprintf(`- "%s:5432"`, match[3]),
+		fmt.Sprintf(`- "127.0.0.1:%s:5432"`, match[3]),
 		"POSTGRES_DB: " + match[4],
 	} {
 		if !strings.Contains(string(compose), expected) {
