@@ -3,6 +3,7 @@ package templates
 import (
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -434,4 +435,40 @@ func TestRenderProjectGeneratesFrontCIAndBuild(t *testing.T) {
 		"tags: ${{ env.REGISTRO }}-${{ matrix.imagem }}:sha-${{ env.SHA_CURTO }}",
 		"cache-from: type=gha,scope=${{ matrix.imagem }}",
 	)
+}
+
+func TestRenderProjectGeneratesLocalCompose(t *testing.T) {
+	for _, temFrontend := range []bool{false, true} {
+		dest := t.TempDir()
+		if err := RenderProject(dest, NewData("meu-projeto", temFrontend)); err != nil {
+			t.Fatalf("RenderProject() error = %v", err)
+		}
+		compose := readFile(t, filepath.Join(dest, "docker-compose.yml"))
+
+		assertContains(t, "docker-compose.yml", compose,
+			"name: meu-projeto",
+			"image: postgres:17-alpine",
+			"POSTGRES_USER: user",
+			"POSTGRES_PASSWORD: pass",
+			"POSTGRES_DB: db",
+			`- "127.0.0.1:5432:5432"`,
+			"pgdata:/var/lib/postgresql/data",
+			"healthcheck:",
+		)
+		for _, forbidden := range []string{"IMAGE_TAG", "stack.env", "external", "nginx-proxy-manager", "<%"} {
+			if strings.Contains(compose, forbidden) {
+				t.Errorf("docker-compose.yml não deveria conter %q", forbidden)
+			}
+		}
+
+		if _, err := exec.LookPath("docker"); err != nil {
+			t.Log("docker ausente: docker compose config -q não foi validado")
+			continue
+		}
+		cmd := exec.Command("docker", "compose", "config", "-q")
+		cmd.Dir = dest
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("docker compose config -q falhou: %v\n%s", err, out)
+		}
+	}
 }

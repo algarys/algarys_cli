@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -77,6 +79,59 @@ func TestGeneratedProjectDependsOnPostgresAndAlembic(t *testing.T) {
 	envExample := generatedConfigFile(t, ".env.example")
 	if !strings.Contains(envExample, "DATABASE_URL=postgresql+asyncpg://") {
 		t.Errorf(".env.example deveria usar o driver asyncpg:\n%s", envExample)
+	}
+}
+
+func TestEnvExampleDatabaseURLMatchesLocalCompose(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "meu-projeto")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	replaceCommandRunner(t, func(dir, stdin, name string, args ...string) (string, error) {
+		return "", nil
+	})
+	for _, step := range projectSteps(ProjectConfig{Name: projectDir, PythonVersion: "3.12"}, "meu_projeto") {
+		if err := step.action(); err != nil {
+			t.Fatalf("%s: %v", step.message, err)
+		}
+	}
+
+	envExample, err := os.ReadFile(filepath.Join(projectDir, ".env.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`DATABASE_URL=postgresql\+asyncpg://([^:]+):([^@]+)@localhost:(\d+)/(\S+)`).FindStringSubmatch(string(envExample))
+	if match == nil {
+		t.Fatalf(".env.example sem DATABASE_URL local:\n%s", envExample)
+	}
+	compose, err := os.ReadFile(filepath.Join(projectDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"POSTGRES_USER: " + match[1],
+		"POSTGRES_PASSWORD: " + match[2],
+		fmt.Sprintf(`- "127.0.0.1:%s:5432"`, match[3]),
+		"POSTGRES_DB: " + match[4],
+	} {
+		if !strings.Contains(string(compose), expected) {
+			t.Errorf("docker-compose.yml não bate com o DATABASE_URL do .env.example: falta %q", expected)
+		}
+	}
+}
+
+func TestGeneratedReadmeExplainsLocalAndProductionCompose(t *testing.T) {
+	readme := generatedConfigFile(t, "README.md")
+	for _, expected := range []string{
+		"cp .env.example .env\ndocker compose up -d --wait",
+		"- [Docker](https://docs.docker.com/get-docker/)",
+		"`docker-compose.yml`",
+		"`docker-compose.prod.yml`",
+		"Portainer",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Errorf("README.md não contém %q", expected)
+		}
 	}
 }
 
@@ -228,7 +283,7 @@ func TestRunStepsStopsAtFirstFailure(t *testing.T) {
 
 func TestNextStepsStartFrontendInAnotherTerminalWithEnv(t *testing.T) {
 	semFront := strings.Join(nextSteps(ProjectConfig{Name: "p"}), "\n")
-	if semFront != "cd p\nuv sync --all-extras\nuv run python -m app" {
+	if semFront != "cd p\ncp .env.example .env\ndocker compose up -d --wait\nuv sync --all-extras\nuv run python -m app" {
 		t.Errorf("sem front os próximos passos mudaram:\n%s", semFront)
 	}
 
