@@ -323,3 +323,35 @@ func TestRenderProjectGeneratesADRs(t *testing.T) {
 		"# ADR-0002", "`…-api` e `…-frontend`",
 	)
 }
+
+func renderComFront(t *testing.T) string {
+	t.Helper()
+	dest := t.TempDir()
+	if err := RenderProject(dest, NewData("meu-projeto", true)); err != nil {
+		t.Fatalf("RenderProject() error = %v", err)
+	}
+	return dest
+}
+
+func TestRenderProjectPutsOnlyFrontendOnProxyNetwork(t *testing.T) {
+	compose := readFile(t, filepath.Join(renderComFront(t), "docker-compose.prod.yml"))
+
+	assertContains(t, "docker-compose.prod.yml com front", compose,
+		"image: ghcr.io/algarys/algarys_meu-projeto-frontend:${IMAGE_TAG:?",
+		"  frontend:\n",
+		"      api:\n        condition: service_healthy",
+		`test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]`,
+	)
+	if t.Failed() {
+		return
+	}
+	api := compose[strings.Index(compose, "  api:\n"):strings.Index(compose, "  frontend:\n")]
+	if strings.Contains(api, "nginx-proxy-manager_default") {
+		t.Errorf("com front, só o frontend entra na rede do proxy:\n%s", api)
+	}
+	frontend := compose[strings.Index(compose, "  frontend:\n"):strings.Index(compose, "\nnetworks:")]
+	assertContains(t, "serviço frontend", frontend, "- nginx-proxy-manager_default")
+	if strings.Contains(compose, "ports:") {
+		t.Error("docker-compose.prod.yml não deveria publicar portas")
+	}
+}
