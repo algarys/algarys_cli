@@ -128,3 +128,28 @@ func TestGeneratedGitignoreKeepsOpenAPIContract(t *testing.T) {
 		t.Errorf(".gitignore ignora o openapi.json da raiz:\n%s", gitignore)
 	}
 }
+
+func TestGeneratedReadmeDocumentsPipeline(t *testing.T) {
+	readme := generatedConfigFile(t, "README.md")
+	for _, expected := range []string{
+		"## Pipeline",
+		"[`docs/adr/`](docs/adr/)",
+		"| Merge na `dev` |",
+		"| Merge na `main` vindo da `dev` |",
+		"| Merge na `main` vindo de `hotfix/*` |",
+		"`PORTAINER_URL`, `PORTAINER_STACK_ID`, `PORTAINER_ENDPOINT_ID`, `APP_URL`",
+		"`PORTAINER_ACCESS_TOKEN`",
+		"### Hotfix",
+		"### Rollback",
+		"Actions → Rollback → Run workflow",
+		"`homolog` roda da `dev`",
+		"`producao` roda da `main`",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Errorf("README.md não contém %q", expected)
+		}
+	}
+	if strings.Index(readme, "## Pipeline") > strings.Index(readme, "## Estrutura do Projeto") {
+		t.Error("Pipeline deveria vir logo depois da governança de branches")
+	}
+}

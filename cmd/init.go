@@ -899,8 +899,9 @@ feature/* → dev → main
 
 - dev é a branch de integração e requer Pull Request com aprovação.
 - main é a fonte de verdade e de release.
-- Pull Requests para main devem partir exclusivamente de dev.
+- Pull Requests para main devem partir exclusivamente de dev ou de hotfix/*.
 
+%s
 ## Estrutura do Projeto
 
 `+"```"+`
@@ -986,7 +987,33 @@ uv run mypy app/
 ---
 
 Criado com [Algarys CLI](https://github.com/algarys/algarys_cli)
-`, projectName, description, pythonVersion)
+`, projectName, description, readmePipeline, pythonVersion)
 
 	os.WriteFile(filepath.Join(projectName, "README.md"), []byte(readme), 0644)
 }
+
+const readmePipeline = "## Pipeline\n\n" +
+	"Dois ambientes, cada um uma stack do Portainer: **homolog** (VPS da Algarys) recebe todo merge na `dev`; " +
+	"**producao** (servidor do cliente) recebe a mesma imagem que passou em homolog. " +
+	"As decisões estão em [`docs/adr/`](docs/adr/).\n\n" +
+	"| Evento | O que roda | Resultado |\n" +
+	"|---|---|---|\n" +
+	"| PR para a `dev` | `ci.yml` | CI vermelho bloqueia o merge, mesmo aprovado. Merge por squash. |\n" +
+	"| Merge na `dev` | `deploy.yml`: `ci` → `build` → `deploy-homolog` → `etiqueta-homolog` | Builda a imagem uma vez com a tag `sha-<7>`, sobe homolog e confere a versão no ar; se falhar, volta sozinho para a tag anterior. |\n" +
+	"| PR `dev → main` | `ci.yml` + `only-dev-source` | Exige CI verde e 1 aprovação. Merge só por **merge commit** (ADR-0003). |\n" +
+	"| Merge na `main` vindo da `dev` | `deploy.yml`: `origem` → `promover` → `deploy-producao` | Sem rebuild: confere que `:homolog` é o `sha-<7>` do PR, move `:producao` para ele e sobe produção. |\n" +
+	"| Merge na `main` vindo de `hotfix/*` | `deploy.yml`: `ci` → `build` → `promover` → `deploy-producao`, mais `cobrar-volta-dev` | Builda do commit da `main` e vai direto para produção (ver [Hotfix](#hotfix)). |\n" +
+	"| Rollback | `rollback.yml`, manual | O mesmo deploy, apontando para uma tag antiga (ver [Rollback](#rollback)). |\n\n" +
+	"### Environments\n\n" +
+	"Em **Settings → Environments**, `homolog` (só a `dev` faz deploy) e `producao` (só a `main`) têm as variables " +
+	"`PORTAINER_URL`, `PORTAINER_STACK_ID`, `PORTAINER_ENDPOINT_ID`, `APP_URL` e o secret `PORTAINER_ACCESS_TOKEN`. " +
+	"Enquanto `PORTAINER_URL` estiver vazia, o deploy daquele ambiente é pulado com um aviso. " +
+	"A stack de cada ambiente é criada no editor web do Portainer a partir do `docker-compose.prod.yml`, " +
+	"com o GHCR registrado por um PAT `read:packages`.\n\n" +
+	"### Hotfix\n\n" +
+	"Abra `hotfix/<nome>` a partir da `main` e dois PRs do mesmo branch: um para a `main` e um para a `dev`. " +
+	"O merge na `main` vai para produção sem passar por homolog; sem o PR para a `dev`, o run fica vermelho (o deploy acontece do mesmo jeito).\n\n" +
+	"### Rollback\n\n" +
+	"**Actions → Rollback → Run workflow**, escolhendo o ambiente e uma tag `sha-<7>` já publicada no GHCR. " +
+	"`homolog` roda da `dev` e `producao` roda da `main`: dispare a partir da branch certa. " +
+	"O workflow redeploya a stack com essa tag e move a etiqueta do ambiente para ela.\n"
