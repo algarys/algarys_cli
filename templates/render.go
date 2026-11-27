@@ -27,9 +27,12 @@ type Data struct {
 	TemFrontend   bool
 }
 
-// conditionalDirs lista diretórios que só são gerados quando a condição vale.
-var conditionalDirs = map[string]func(Data) bool{
-	"frontend": func(d Data) bool { return d.TemFrontend },
+func temFrontend(d Data) bool { return d.TemFrontend }
+
+// conditionalPaths lista diretórios e arquivos (sem .tmpl) gerados só quando a condição vale.
+var conditionalPaths = map[string]func(Data) bool{
+	"frontend": temFrontend,
+	"docs/adr/0002-duas-imagens-uma-unidade-de-deploy.md": temFrontend,
 }
 
 func NewData(projeto string, temFrontend bool) Data {
@@ -48,15 +51,16 @@ func render(fsys fs.FS, dest string, data Data) error {
 		if err != nil {
 			return err
 		}
-		relative := strings.TrimPrefix(path, templateRoot+"/")
-		if entry.IsDir() {
-			include, conditional := conditionalDirs[relative]
-			if conditional && !include(data) {
+		relative := strings.TrimSuffix(strings.TrimPrefix(path, templateRoot+"/"), templateSuffix)
+		if include, conditional := conditionalPaths[relative]; conditional && !include(data) {
+			if entry.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		relative = strings.TrimSuffix(relative, templateSuffix)
+		if entry.IsDir() {
+			return nil
+		}
 		return renderFile(fsys, path, filepath.Join(dest, filepath.FromSlash(relative)), data)
 	})
 }
