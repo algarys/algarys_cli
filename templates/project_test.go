@@ -462,6 +462,7 @@ func TestRenderProjectGeneratesLocalCompose(t *testing.T) {
 		}
 
 		if _, err := exec.LookPath("docker"); err != nil {
+			t.Log("docker ausente: docker compose config -q não foi validado")
 			continue
 		}
 		cmd := exec.Command("docker", "compose", "config", "-q")
