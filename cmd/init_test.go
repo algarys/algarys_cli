@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,5 +199,29 @@ func TestRequireNodeExplainsWhatIsMissing(t *testing.T) {
 	err := requireNode()
 	if err == nil || !strings.Contains(err.Error(), "Node") || !strings.Contains(err.Error(), "npm") {
 		t.Errorf("requireNode() sem npm no PATH = %v, quer erro citando Node e npm", err)
+	}
+}
+
+func TestRunStepsStopsAtFirstFailure(t *testing.T) {
+	var executados []string
+	passo := func(nome string, err error) initStep {
+		return initStep{message: nome, action: func() error {
+			executados = append(executados, nome)
+			return err
+		}}
+	}
+	falha := errors.New("registro fora do ar")
+
+	err := runSteps([]initStep{
+		passo("uv", nil),
+		passo("npm", falha),
+		passo("git", nil),
+	}, func(step initStep) error { return step.action() })
+
+	if !errors.Is(err, falha) || !strings.Contains(err.Error(), "npm") {
+		t.Errorf("runSteps() = %v, quer o erro do passo npm", err)
+	}
+	if strings.Join(executados, ",") != "uv,npm" {
+		t.Errorf("executados = %v: nada roda depois da falha (o git não pode commitar um projeto incompleto)", executados)
 	}
 }

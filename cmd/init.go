@@ -161,19 +161,21 @@ func runInit(cmd *cobra.Command, args []string) {
 	}
 
 	// Executar etapas com spinners
-	steps := projectSteps(config, moduleName)
-	for _, step := range steps {
+	err = runSteps(projectSteps(config, moduleName), func(step initStep) error {
 		spinner := ui.NewSpinner(step.icon + "  " + step.message)
 		spinner.Start()
 		time.Sleep(300 * time.Millisecond) // Pequeno delay para visual
-
-		err := step.action()
-
-		if err == nil {
-			spinner.Success(step.message)
-		} else {
-			spinner.Warning(fmt.Sprintf("%s: %v", step.message, err))
+		if err := step.action(); err != nil {
+			spinner.Error(fmt.Sprintf("%s: %v", step.message, err))
+			return err
 		}
+		spinner.Success(step.message)
+		return nil
+	})
+	if err != nil {
+		fmt.Println()
+		fmt.Println(ui.RenderError(fmt.Sprintf("Init interrompido antes do commit inicial: corrija, apague o diretório '%s' e rode de novo", config.Name)))
+		os.Exit(1)
 	}
 
 	// Criar repositório no GitHub
@@ -287,6 +289,16 @@ func runInit(cmd *cobra.Command, args []string) {
 		PaddingLeft(2)
 	fmt.Println(tipStyle.Render(fmt.Sprintf("%s Dica: use 'algarys --help' para ver outros comandos", ui.IconMagic)))
 	fmt.Println()
+}
+
+// Para no primeiro erro: um passo seguinte, como o commit inicial, gravaria um projeto incompleto.
+func runSteps(steps []initStep, run func(initStep) error) error {
+	for _, step := range steps {
+		if err := run(step); err != nil {
+			return fmt.Errorf("%s: %w", step.message, err)
+		}
+	}
+	return nil
 }
 
 type initStep struct {
