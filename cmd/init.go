@@ -193,7 +193,7 @@ func runInit(cmd *cobra.Command, args []string) {
 				spinner2.Start()
 				time.Sleep(300 * time.Millisecond)
 
-				if err := configureRulesets(repoName, config.GitHubOrg); err == nil {
+				if err := configureRulesets(repoName, config.GitHubOrg, false); err == nil {
 					spinner2.Success("Rulesets dev e main configurados")
 				} else {
 					spinner2.Warning(fmt.Sprintf("Governança não configurada: %v", err))

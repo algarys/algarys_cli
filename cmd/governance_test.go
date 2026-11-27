@@ -96,65 +96,108 @@ func TestCreateGitHubRepoReportsCommandFailure(t *testing.T) {
 	}
 }
 
-func TestRulesetPayloads(t *testing.T) {
+type rulesetExpectation struct {
+	checks       []string
+	strict       bool
+	mergeMethods []string
+}
+
+func TestRulesetPayloadsFollowSpec(t *testing.T) {
 	tests := []struct {
-		name           string
-		branch         string
-		approvals      int
-		requiredStatus bool
-		linearHistory  bool
-		wantStatus     bool
-		wantLinear     bool
+		name     string
+		frontend bool
+		want     map[string]rulesetExpectation
 	}{
-		{name: "Protect dev", branch: "dev", approvals: 1},
-		{name: "Protect main", branch: "main", requiredStatus: true, linearHistory: true, wantStatus: true, wantLinear: true},
+		{
+			name: "sem front",
+			want: map[string]rulesetExpectation{
+				"dev":  {checks: []string{"back", "stack", "imagem"}, strict: true, mergeMethods: []string{"squash"}},
+				"main": {checks: []string{"only-dev-source", "back", "stack", "imagem"}, strict: false, mergeMethods: []string{"merge"}},
+			},
+		},
+		{
+			name:     "com front",
+			frontend: true,
+			want: map[string]rulesetExpectation{
+				"dev":  {checks: []string{"back", "stack", "imagem", "front"}, strict: true, mergeMethods: []string{"squash"}},
+				"main": {checks: []string{"only-dev-source", "back", "stack", "imagem", "front"}, strict: false, mergeMethods: []string{"merge"}},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			payloadText, err := buildRulesetPayload(tt.name, tt.branch, tt.approvals, tt.requiredStatus, tt.linearHistory)
-			if err != nil {
-				t.Fatal(err)
+			specs := rulesetSpecs(tt.frontend)
+			if len(specs) != 2 {
+				t.Fatalf("quantidade de rulesets = %d, want 2", len(specs))
 			}
-
-			var payload map[string]any
-			if err := json.Unmarshal([]byte(payloadText), &payload); err != nil {
-				t.Fatalf("payload inválido: %v", err)
-			}
-			if payload["name"] != tt.name || payload["target"] != "branch" || payload["enforcement"] != "active" {
-				t.Errorf("metadados inesperados: %#v", payload)
-			}
-			if len(payload["bypass_actors"].([]any)) != 0 {
-				t.Error("ruleset não deve possuir bypass actors")
-			}
-
-			conditions := payload["conditions"].(map[string]any)
-			refName := conditions["ref_name"].(map[string]any)
-			if got := refName["include"].([]any)[0]; got != "refs/heads/"+tt.branch {
-				t.Errorf("branch protegida = %v", got)
-			}
-
-			rules := payload["rules"].([]any)
-			foundStatus, foundLinear := false, false
-			for _, rawRule := range rules {
-				rule := rawRule.(map[string]any)
-				switch rule["type"] {
-				case "required_status_checks":
-					foundStatus = true
-					parameters := rule["parameters"].(map[string]any)
-					checks := parameters["required_status_checks"].([]any)
-					if checks[0].(map[string]any)["context"] != mainSourceCheck {
-						t.Errorf("check obrigatório = %#v", checks[0])
-					}
-				case "required_linear_history":
-					foundLinear = true
+			for _, spec := range specs {
+				payloadText, err := buildRulesetPayload(spec)
+				if err != nil {
+					t.Fatal(err)
 				}
-			}
-			if foundStatus != tt.wantStatus || foundLinear != tt.wantLinear {
-				t.Errorf("regras status/linear = %v/%v, want %v/%v", foundStatus, foundLinear, tt.wantStatus, tt.wantLinear)
+				var payload map[string]any
+				if err := json.Unmarshal([]byte(payloadText), &payload); err != nil {
+					t.Fatalf("payload inválido: %v", err)
+				}
+
+				branch := strings.TrimPrefix(payload["conditions"].(map[string]any)["ref_name"].(map[string]any)["include"].([]any)[0].(string), "refs/heads/")
+				want, ok := tt.want[branch]
+				if !ok {
+					t.Fatalf("branch inesperada %q", branch)
+				}
+				if payload["name"] != "Protect "+branch || payload["enforcement"] != "active" {
+					t.Errorf("metadados inesperados: %v/%v", payload["name"], payload["enforcement"])
+				}
+				if len(payload["bypass_actors"].([]any)) != 0 {
+					t.Error("ruleset não deve possuir bypass actors")
+				}
+
+				var pr, status map[string]any
+				for _, rawRule := range payload["rules"].([]any) {
+					rule := rawRule.(map[string]any)
+					switch rule["type"] {
+					case "pull_request":
+						pr = rule["parameters"].(map[string]any)
+					case "required_status_checks":
+						status = rule["parameters"].(map[string]any)
+					case "required_linear_history":
+						t.Errorf("%s não deve exigir histórico linear", branch)
+					}
+				}
+				if pr == nil || status == nil {
+					t.Fatalf("%s sem regra de PR ou de checks", branch)
+				}
+				if pr["required_approving_review_count"] != float64(1) {
+					t.Errorf("%s aprovações = %v, want 1", branch, pr["required_approving_review_count"])
+				}
+				if pr["require_code_owner_review"] != false {
+					t.Errorf("%s deve ter require_code_owner_review false", branch)
+				}
+				if got := toStrings(pr["allowed_merge_methods"]); strings.Join(got, ",") != strings.Join(want.mergeMethods, ",") {
+					t.Errorf("%s métodos de merge = %v, want %v", branch, got, want.mergeMethods)
+				}
+				if status["strict_required_status_checks_policy"] != want.strict {
+					t.Errorf("%s strict = %v, want %v", branch, status["strict_required_status_checks_policy"], want.strict)
+				}
+				var contexts []string
+				for _, check := range status["required_status_checks"].([]any) {
+					contexts = append(contexts, check.(map[string]any)["context"].(string))
+				}
+				if strings.Join(contexts, ",") != strings.Join(want.checks, ",") {
+					t.Errorf("%s checks = %v, want %v", branch, contexts, want.checks)
+				}
 			}
 		})
 	}
+}
+
+func toStrings(raw any) []string {
+	var out []string
+	for _, item := range raw.([]any) {
+		out = append(out, item.(string))
+	}
+	return out
 }
 
 func TestConfigureRulesetsUsesDevThenMain(t *testing.T) {
@@ -164,7 +207,7 @@ func TestConfigureRulesetsUsesDevThenMain(t *testing.T) {
 		return "", nil
 	})
 
-	if err := configureRulesets("algarys_meu-projeto", "algarys"); err != nil {
+	if err := configureRulesets("algarys_meu-projeto", "algarys", false); err != nil {
 		t.Fatalf("configureRulesets() error = %v", err)
 	}
 	if len(calls) != 2 {
@@ -194,7 +237,7 @@ func TestConfigureRulesetsReportsAPIFailure(t *testing.T) {
 		return "", nil
 	})
 
-	err := configureRulesets("algarys_meu-projeto", "algarys")
+	err := configureRulesets("algarys_meu-projeto", "algarys", false)
 	if err == nil || !strings.Contains(err.Error(), "criar ruleset Protect main") {
 		t.Fatalf("erro = %v, deveria identificar o ruleset da falha", err)
 	}
