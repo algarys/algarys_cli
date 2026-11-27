@@ -1,0 +1,5 @@
+# ADR-0002 — Duas imagens, uma unidade de deploy
+
+**Decisão.** O monorepo publica duas imagens no GHCR, `…-api` e `…-frontend`, as duas com a mesma tag `sha-<commit>`, e elas sobem, são promovidas e voltam juntas na mesma stack. Nunca existe front numa versão e API em outra.
+
+**Por quê.** O front é um nginx separado que faz proxy de `/api` para a `api`, e não uma SPA servida pelo FastAPI na mesma origem; juntar as duas numa imagem seria mudar a arquitetura do produto, não o pipeline. Pipelines independentes por imagem permitiriam combinações de versão que ninguém testou, e o gate de contrato do `openapi.json` só garante alguma coisa se front e API do mesmo commit andam juntos.

@@ -1,0 +1,7 @@
+# ADR-0001 — Deploy pela API do Portainer, não por webhook
+
+**Decisão.** O `deploy.yml` lê a stack com `GET /api/stacks/{id}` e o arquivo atual com `GET /api/stacks/{id}/file`, troca só o `IMAGE_TAG` no `Env` para `sha-<commit>` e devolve tudo com `PUT /api/stacks/{id}?endpointId={id}` e `pullImage: true` (`scripts/deploy_portainer.py`). URL, id da stack e id do endpoint são variáveis do GitHub Environment; o token (`PORTAINER_ACCESS_TOKEN`) é segredo.
+
+**Por quê.** O webhook nativo de stack do Portainer CE exige Docker Swarm, e os servidores da Algarys não rodam Swarm. A rota da API é a mesma do "Update the stack" da interface, então o serviço `migrate` roda e termina antes de a `api` subir com a imagem nova. Fixar o `IMAGE_TAG` num `sha-…`, e não numa tag móvel, faz o Portainer mostrar exatamente qual commit está rodando e torna o rollback a mesma operação do deploy, só que apontando para uma tag antiga.
+
+**Consequência.** O arquivo da stack que vale é o do editor web do Portainer, criado a partir do `docker-compose.prod.yml`: o deploy nunca sobrescreve o compose, só o `IMAGE_TAG`. Mudança no compose do repositório precisa ser levada à mão para a stack. As etiquetas `:homolog` e `:producao` no GHCR só registram o que está no ar; a stack nunca roda uma delas.

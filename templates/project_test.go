@@ -290,3 +290,36 @@ func TestRenderProjectGeneratesRollback(t *testing.T) {
 		t.Error("rollback.yml ficou com delimitador de template")
 	}
 }
+
+func TestRenderProjectGeneratesADRs(t *testing.T) {
+	adrs := filepath.Join(renderDefault(t), "docs", "adr")
+
+	assertContains(t, "ADR-0001", readFile(t, filepath.Join(adrs, "0001-deploy-pela-api-do-portainer.md")),
+		"# ADR-0001", "IMAGE_TAG", "`pullImage: true`", "PORTAINER_ACCESS_TOKEN",
+	)
+	adr3 := readFile(t, filepath.Join(adrs, "0003-promover-a-imagem-testada.md"))
+	assertContains(t, "ADR-0003", adr3,
+		"# ADR-0003",
+		"1 aprovação de qualquer membro",
+		"sem `CODEOWNERS`",
+		"merge commit",
+		"histórico linear",
+		"**Exceção: hotfix.**",
+		"`hotfix/* → main`",
+	)
+	if strings.Contains(adr3, "code owner") {
+		t.Error("ADR-0003 não deveria exigir code owner")
+	}
+	if _, err := os.Stat(filepath.Join(adrs, "0002-duas-imagens-uma-unidade-de-deploy.md")); err == nil {
+		t.Error("ADR-0002 só existe com frontend")
+	}
+
+	comFront := t.TempDir()
+	if err := RenderProject(comFront, NewData("meu-projeto", true)); err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, "ADR-0002",
+		readFile(t, filepath.Join(comFront, "docs", "adr", "0002-duas-imagens-uma-unidade-de-deploy.md")),
+		"# ADR-0002", "`…-api` e `…-frontend`",
+	)
+}
