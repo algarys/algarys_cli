@@ -1,0 +1,112 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Ambiente que volta de versão (homolog roda da dev, producao da main)
+        type: choice
+        options: [homolog, producao]
+        required: true
+      tag:
+        description: Tag já publicada no GHCR (sha-<7 hex do commit>)
+        type: string
+        required: true
+
+# Mesmo grupo do deploy.yml: rollback e deploy do mesmo ambiente nunca rodam juntos.
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRO: <% .Registro %>
+  IMAGENS: api<% if .TemFrontend %> frontend<% end %>
+  AMBIENTE: ${{ inputs.ambiente }}
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      # Os Environments só aceitam essas branches; falhar aqui dá uma mensagem melhor.
+      - name: Branch do run bate com o ambiente
+        run: |
+          case "$AMBIENTE" in
+            homolog) esperada=dev ;;
+            producao) esperada=main ;;
+          esac
+          if [[ "$GITHUB_REF_NAME" != "$esperada" ]]; then
+            echo "::error::rollback de $AMBIENTE roda a partir da $esperada, não da $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      - name: Formato da tag
+        run: |
+          if [[ ! "$TAG" =~ ^sha-[0-9a-f]{7}$ ]]; then
+            echo "::error::tag deve ser sha-<7 hex do commit>, recebido '$TAG'"
+            exit 1
+          fi
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Imagens existem no GHCR
+        run: |
+          for imagem in $IMAGENS; do
+            if ! docker buildx imagetools inspect "$REGISTRO-$imagem:$TAG" > /dev/null; then
+              echo "::error::$REGISTRO-$imagem:$TAG não existe no GHCR"
+              exit 1
+            fi
+          done
+
+  deploy:
+    needs: validar
+    runs-on: ubuntu-latest
+    # PUT (5 min) + espera (3 min) + reversão (5 min), com folga para não morrer revertendo.
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.ambiente }}
+      url: ${{ vars.APP_URL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Deploy pela API do Portainer
+        env:
+          PORTAINER_URL: ${{ vars.PORTAINER_URL }}
+          PORTAINER_STACK_ID: ${{ vars.PORTAINER_STACK_ID }}
+          PORTAINER_ENDPOINT_ID: ${{ vars.PORTAINER_ENDPOINT_ID }}
+          PORTAINER_ACCESS_TOKEN: ${{ secrets.PORTAINER_ACCESS_TOKEN }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: IMAGE_TAG="$TAG" python3 scripts/deploy_portainer.py
+
+  etiqueta:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A etiqueta do ambiente segue o que está no ar, como no deploy.yml.
+      - name: Etiqueta do ambiente aponta para a versão restaurada
+        run: |
+          for imagem in $IMAGENS; do
+            docker buildx imagetools create \
+              -t "$REGISTRO-$imagem:$AMBIENTE" "$REGISTRO-$imagem:$TAG"
+          done

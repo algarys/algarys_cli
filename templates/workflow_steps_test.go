@@ -250,3 +250,55 @@ func TestDeployCobrarVoltaDevExigePRDoHotfixParaDev(t *testing.T) {
 		t.Errorf("com PR mergeado deveria passar, saída: %s", r.saida)
 	}
 }
+
+func TestRollbackValidaAntesDoDeploy(t *testing.T) {
+	rollback := renderedWorkflow(t, "rollback.yml")
+
+	t.Run("producao disparado da dev falha com mensagem clara", func(t *testing.T) {
+		script := stepScript(t, rollback, "Branch do run bate com o ambiente")
+		r := runStep(t, script, map[string]string{"AMBIENTE": "producao", "GITHUB_REF_NAME": "dev"}, "", "")
+		if !r.falhou || !strings.Contains(r.saida, "::error::rollback de producao roda a partir da main, não da dev") {
+			t.Errorf("saída: %s", r.saida)
+		}
+		r = runStep(t, script, map[string]string{"AMBIENTE": "homolog", "GITHUB_REF_NAME": "dev"}, "", "")
+		if r.falhou {
+			t.Errorf("homolog da dev deveria passar: %s", r.saida)
+		}
+	})
+
+	t.Run("tag fora do formato sha-<7 hex>", func(t *testing.T) {
+		script := stepScript(t, rollback, "Formato da tag")
+		for _, tag := range []string{"homolog", "sha-abcdef", "sha-ABCDEF0", "sha-abcdef01"} {
+			if r := runStep(t, script, map[string]string{"TAG": tag}, "", ""); !r.falhou {
+				t.Errorf("tag %q deveria falhar", tag)
+			}
+		}
+		if r := runStep(t, script, map[string]string{"TAG": "sha-abcdef0"}, "", ""); r.falhou {
+			t.Errorf("sha-abcdef0 deveria passar: %s", r.saida)
+		}
+	})
+
+	t.Run("imagem precisa existir no GHCR", func(t *testing.T) {
+		script := stepScript(t, rollback, "Imagens existem no GHCR")
+		env := map[string]string{"TAG": "sha-abcdef0", "IMAGENS": "api"}
+		r := runStep(t, script, env, "", "")
+		if !r.falhou || !strings.Contains(r.saida, "api:sha-abcdef0 não existe no GHCR") {
+			t.Errorf("saída: %s", r.saida)
+		}
+		if r := runStep(t, script, env, registroBase+":sha-abcdef0 sha256:x\n", ""); r.falhou {
+			t.Errorf("imagem existente deveria passar: %s", r.saida)
+		}
+	})
+}
+
+func TestRollbackMoveEtiquetaDoAmbiente(t *testing.T) {
+	script := stepScript(t, renderedWorkflow(t, "rollback.yml"), "Etiqueta do ambiente aponta para a versão restaurada")
+	registro := registroBase + ":sha-abcdef0 sha256:antigo\n" + registroBase + ":producao sha256:atual\n"
+	r := runStep(t, script, map[string]string{"AMBIENTE": "producao", "TAG": "sha-abcdef0", "IMAGENS": "api"}, registro, "")
+	if r.falhou {
+		t.Fatalf("falhou: %s", r.saida)
+	}
+	if got := r.digest(t, registroBase+":producao"); got != "sha256:antigo" {
+		t.Errorf("producao = %q, want sha256:antigo", got)
+	}
+}

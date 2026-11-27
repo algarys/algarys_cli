@@ -268,3 +268,25 @@ func TestRenderProjectGeneratesProductionDeploy(t *testing.T) {
 	assertContains(t, "deploy.yml com front",
 		readFile(t, filepath.Join(comFront, ".github", "workflows", "deploy.yml")), "  IMAGENS: api frontend\n")
 }
+
+func TestRenderProjectGeneratesRollback(t *testing.T) {
+	dest := renderDefault(t)
+	rollback := readFile(t, filepath.Join(dest, ".github", "workflows", "rollback.yml"))
+
+	assertContains(t, "rollback.yml", rollback,
+		"on:\n  workflow_dispatch:\n",
+		"options: [homolog, producao]",
+		"group: deploy-${{ github.ref_name }}\n  cancel-in-progress: false",
+		"REGISTRO: ghcr.io/algarys/algarys_meu-projeto\n",
+		"IMAGENS: api\n",
+		"AMBIENTE: ${{ inputs.ambiente }}",
+		"TAG: ${{ inputs.tag }}",
+		"  deploy:\n    needs: validar\n",
+		"name: ${{ inputs.ambiente }}",
+		`IMAGE_TAG="$TAG" python3 scripts/deploy_portainer.py`,
+		"  etiqueta:\n    needs: deploy\n",
+	)
+	if strings.Contains(rollback, "<%") {
+		t.Error("rollback.yml ficou com delimitador de template")
+	}
+}
