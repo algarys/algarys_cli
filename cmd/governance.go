@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -63,6 +64,25 @@ func initUV(projectName string) error {
 	}
 	if _, err := runCommand(projectName, "", "uv", "run", "python", "scripts/gerar_contrato.py"); err != nil {
 		return fmt.Errorf("gerar openapi.json: %w", err)
+	}
+	return nil
+}
+
+func requireNode() error {
+	if _, err := exec.LookPath("npm"); err != nil {
+		return errors.New("o frontend precisa do Node com npm no PATH (o CI usa o 22): instale em https://nodejs.org e rode o init de novo")
+	}
+	return nil
+}
+
+// O package-lock.json e o src/types/api.ts entram no commit inicial: o CI roda npm ci e confere os tipos.
+func initFrontend(projectName string) error {
+	dir := filepath.Join(projectName, "frontend")
+	if _, err := runCommand(dir, "", "npm", "install", "--no-audit", "--no-fund"); err != nil {
+		return fmt.Errorf("npm install: %w", err)
+	}
+	if _, err := runCommand(dir, "", "npm", "run", "types:api"); err != nil {
+		return fmt.Errorf("npm run types:api: %w", err)
 	}
 	return nil
 }
